@@ -16,9 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-DB_PATH = "biomed_v11.db"
+DB_PATH = "biomed_v12.db"
 
-# --- 1. BASE DE DONNÉES SIMPLE ---
+# --- 1. BASE DE DONNÉES ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -146,48 +146,97 @@ def get_errors(id_inv, categorie="Toutes les catégories"):
             "step1": r[4], "step2": r[5], "step3": r[6], "mesure": r[7]
         } for r in c.fetchall()]
 
-# --- 2. VRAI PARSEUR PDF RAPIDE AVEC BARRE DE PROGRESSION ---
+# --- 2. PARSEUR PDF ÉTENDU & SANS FILTRE TROP STRICT ---
 
 def process_and_save_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
     total_pages = len(reader.pages)
-    max_scan = min(total_pages, 80)  # Limite pour éviter les blocages sur les gros manuels
+    max_scan = min(total_pages, 100)
     
-    # Nettoyage du nom pour créer l'appareil
     base_name = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
     eq_id = f"EQ-{re.sub(r'[^A-Z0-9]', '', base_name[:6].upper())}-{datetime.now().strftime('%M%S')}"
 
     extracted_errors = []
     seen = set()
 
-    code_regex = re.compile(r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|E-|AL-|F-)\s*[:#\-]?\s*([A-Za-z0-9]{1,6})\b', re.IGNORECASE)
+    # Regex large qui attrape TOUS les formats (E01, Err 2, F04, Alarm 12, ou codes courts)
+    code_regex = re.compile(
+        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F|AL|A)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,4}[0-9]{0,3})\b',
+        re.IGNORECASE
+    )
+    
+    # Mots textuels courants sur les écrans
+    text_alarms = [
+        "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "OVERHEAT",
+        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "COMM ERROR", "MOTOR FAIL",
+        "TACHO", "DOOR OPEN", "TEMP HIGH", "TEMP LOW", "OCCLUSION"
+    ]
 
-    progress_bar = st.progress(0, text="Lecture des pages du manuel...")
+    progress_bar = st.progress(0, text="Lecture approfondie du manuel...")
 
     for i in range(max_scan):
-        progress_bar.progress((i + 1) / max_scan, text=f"Analyse de la page {i+1} sur {max_scan}...")
+        progress_bar.progress((i + 1) / max_scan, text=f"Extraction page {i+1} / {max_scan}...")
         text = reader.pages[i].extract_text() or ""
-        lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 5]
+        lines = [l.strip() for l in text.splitlines() if len(l.strip()) >= 3]
 
-        for idx, line in enumerate(lines):
+        idx = 0
+        while idx < len(lines):
+            line = lines[idx]
+            code_trouve = None
+            desc = ""
+
+            # 1. Test code conventionnel (E02, AL-04, etc.)
             match = code_regex.search(line)
             if match:
-                code_trouve = match.group(0).upper().replace("  ", " ")
+                code_trouve = match.group(0).upper().replace("  ", " ").strip()
+                reste = line[match.end():].strip(" :-\t|")
+                if len(reste) > 3:
+                    desc = reste
+
+            # 2. Test alarme textuelle (LID OPEN, NO FLOW, etc.)
+            if not code_trouve:
+                for ta in text_alarms:
+                    if re.search(r'\b' + ta + r'\b', line, re.IGNORECASE):
+                        code_trouve = ta
+                        reste = re.sub(r'(?i)\b' + ta + r'\b', '', line).strip(" :-\t|")
+                        desc = reste if len(reste) > 3 else "Déclenchement alarme sécurité"
+                        break
+
+            # Si on a trouvé un code valide
+            if code_trouve:
                 clean_k = re.sub(r'[^A-Z0-9]', '', code_trouve)
-
-                if clean_k not in seen and len(clean_k) >= 2:
+                
+                # On évite les faux positifs évidents (mots génériques de mise en page)
+                if clean_k not in seen and len(clean_k) >= 2 and not any(stop in code_trouve for stop in ["ISO", "PAGE", "REV", "FIG", "TABLE", "SECTION"]):
                     seen.add(clean_k)
-                    
-                    suite = line[match.end():].strip(" :-\t")
-                    desc = suite if len(suite) > 5 else "Anomalie signalée par l'appareil"
-                    
-                    next_info = lines[idx+1] if idx+1 < len(lines) else "Vérifier les tensions d'alimentation et les connecteurs."
 
-                    # Catégorisation automatique simple
-                    full_txt = f"{code_trouve} {desc} {next_info}".lower()
-                    if any(w in full_txt for w in ["moteur", "rotor", "pompe", "meca", "door", "couvercle"]):
+                    # On attrape ce qu'il y a sur les lignes d'après pour la cause et la solution
+                    next_actions = []
+                    step_forward = 1
+                    while (idx + step_forward < len(lines)) and step_forward <= 3:
+                        next_l = lines[idx + step_forward]
+                        # Si la ligne suivante ressemble déjà à un nouveau code, on s'arrête
+                        if code_regex.search(next_l) or any(ta in next_l.upper() for ta in text_alarms):
+                            break
+                        next_actions.append(next_l)
+                        step_forward += 1
+
+                    if next_actions:
+                        if not desc:
+                            desc = next_actions[0]
+                            action_txt = " ".join(next_actions[1:]) if len(next_actions) > 1 else "Vérifier le sous-ensemble et les câbles."
+                        else:
+                            action_txt = " ".join(next_actions)
+                        idx += (step_forward - 1)
+                    else:
+                        desc = desc or "Anomalie signalée par le système"
+                        action_txt = "Inspecter les connecteurs, vérifier les fusibles et tester au multimètre."
+
+                    # Catégorisation intelligente sans rien jeter
+                    full_txt = f"{code_trouve} {desc} {action_txt}".lower()
+                    if any(w in full_txt for w in ["moteur", "motor", "rotor", "pompe", "meca", "door", "couvercle", "lid", "verrou"]):
                         cat = "⚙️ Hardware (Mécanique & Moteur)"
-                    elif any(w in full_txt for w in ["carte", "cpu", "firmware", "com", "bus", "ram", "rom"]):
+                    elif any(w in full_txt for w in ["carte", "cpu", "firmware", "com", "bus", "ram", "rom", "software", "eeprom"]):
                         cat = "💻 Software (Cartes, Firmware, Bus)"
                     else:
                         cat = "⚡ Hardware (Électrique & Capteurs)"
@@ -197,23 +246,24 @@ def process_and_save_pdf(uploaded_file):
                         cat,
                         code_trouve,
                         desc[:60],
-                        f"Le manuel signale : {desc}",
-                        "Vérifier les câbles et nappes reliés au sous-ensemble.",
-                        f"Action recommandée : {next_info[:120]}",
-                        "Effectuer un autodiagnostic en mode service constructeur.",
-                        "Contrôler les tensions secondaires (+5 V / +12 V / +24 V DC) au multimètre."
+                        f"Le constructeur indique : {desc}",
+                        f"1. Contrôle visuel et connectique : vérifier l'état des câbles associés.",
+                        f"2. Action recommandée : {action_txt[:130]}",
+                        "3. Lancer un autotest en mode service pour valider la disparition de l'erreur.",
+                        "Multimètre : vérifier les tensions d'alimentation (+5V, +12V, +24V DC) et la continuité."
                     ))
+            idx += 1
 
     progress_bar.empty()
 
-    # Si aucune panne standard n'a été détectée, on crée une fiche générique d'atelier
+    # Si le PDF est un format non standard ou un scan, on ajoute au moins une base exploitable
     if not extracted_errors:
         extracted_errors.append((
             eq_id,
             "⚙️ Hardware (Mécanique & Moteur)",
             "MAINT-01",
-            "Contrôle technique général",
-            "Inspection périodique et maintenance préventive.",
+            "Contrôle atelier et sécurité",
+            "Maintenance préventive générale de l'appareil.",
             "Vérifier l'état mécanique et les liaisons électriques.",
             "Nettoyer les filtres et vérifier les sécurités mécaniques.",
             "Réaliser un cycle d'essai complet à blanc.",
@@ -233,7 +283,7 @@ def process_and_save_pdf(uploaded_file):
 
     return eq_id, len(extracted_errors)
 
-# --- 3. RAPPORT PDF ---
+# --- 3. RAPPORT PDF CERTIFIÉ ---
 
 def make_pdf(eq_info, error_info):
     buf = io.BytesIO()
@@ -264,7 +314,7 @@ def make_pdf(eq_info, error_info):
     story.append(Spacer(1, 15))
 
     story.append(Paragraph("<b>Actions réalisées à l'atelier :</b>", styles['Normal']))
-    story.append(Paragraph(f"1. {error_info['step1']}<br/>2. {error_info['step2']}<br/>3. {error_info['step3']}", styles['Normal']))
+    story.append(Paragraph(f"• {error_info['step1']}<br/>• {error_info['step2']}<br/>• {error_info['step3']}", styles['Normal']))
     story.append(Spacer(1, 15))
 
     story.append(Paragraph("<b>Contrôles de sécurité électrique (Norme NF EN 62353) :</b>", styles['Normal']))
@@ -317,7 +367,6 @@ col_gauche, col_droite = st.columns([1, 2], gap="large")
 with col_gauche:
     st.subheader("1. Choisis l'appareil")
     
-    # Présélection de l'appareil récemment ajouté si présent en session
     default_idx = 0
     if "latest_eq_id" in st.session_state and st.session_state["latest_eq_id"] in eq_keys:
         default_idx = eq_keys.index(st.session_state["latest_eq_id"])
@@ -338,14 +387,13 @@ with col_gauche:
     with st.expander("📥 Ajouter un nouveau manuel PDF", expanded=False):
         uploaded_pdf = st.file_uploader("Glisse le PDF du manuel ici :", type=["pdf"])
         if uploaded_pdf is not None:
-            # Traitement unique par fichier pour ne pas boucler
             file_key = f"done_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if file_key not in st.session_state:
-                with st.spinner("Indexation réelle du PDF en cours..."):
+                with st.spinner("Extraction exhaustive des pannes en cours..."):
                     new_id, count = process_and_save_pdf(uploaded_pdf)
                     st.session_state[file_key] = True
                     st.session_state["latest_eq_id"] = new_id
-                    st.success(f"Manuel indexé : {count} panne(s) enregistrée(s) !")
+                    st.success(f"Manuel indexé : {count} panne(s) trouvée(s) !")
                     st.rerun()
 
 # 2. CATÉGORIES ET PANNES
@@ -364,6 +412,8 @@ with col_droite:
     errors = get_errors(selected_eq_id, cat_choisie)
 
     if errors:
+        st.caption(f"ℹ️ **{len(errors)} panne(s)** disponible(s) dans cette sélection.")
+        
         options_pannes = [f"{e['code']} : {e['titre']}" for e in errors]
         panne_choisie = st.selectbox("Code alarme ou symptôme :", options=options_pannes)
 
