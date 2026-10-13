@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-DB_PATH = "biomed_v14.db"
+DB_PATH = "biomed_v15.db"
 
 # --- 1. BASE DE DONNÉES ---
 
@@ -132,30 +132,17 @@ def get_errors(id_inv, categorie="Toutes les catégories"):
             "step1": r[4], "step2": r[5], "step3": r[6], "mesure": r[7]
         } for r in c.fetchall()]
 
-# --- 2. FILTRAGE ANTI-SOMMAIRE & EXTRACTION DES VRAIES PANNES ---
+# --- 2. PARSEUR PDF ÉTENDU SANS SOMMAIRE ---
 
-def is_table_of_contents_line(text):
-    """Détecte et rejette formellement les lignes de sommaire avec des pointillés."""
-    if re.search(r'\.{3,}', text):  # Détecte 3 points de suite ou plus
-        return True
-    if re.search(r'\s*\.{2,}\s*\d+$', text):  # Détecte pointillés terminés par un numéro de page
-        return True
-    return False
-
-def clean_text_segment(text):
-    """Supprime les pointillés, tirets isolés et numéros de page résiduels."""
-    text = re.sub(r'\.{2,}', '', text)
+def clean_line_text(text):
+    text = re.sub(r'\.{2,}', ' ', text)
     text = re.sub(r'[\t_]+', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+    return re.sub(r'\s+', ' ', text).strip()
 
 def process_and_save_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
     total_pages = len(reader.pages)
-    
-    # Évite les 10 premières pages si le manuel est long (zone du sommaire/table des matières)
-    start_page = 10 if total_pages > 25 else 0
-    max_scan = min(total_pages, 90)
+    max_scan = min(total_pages, 120)
     
     base_name = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
     eq_id = f"EQ-{re.sub(r'[^A-Z0-9]', '', base_name[:6].upper())}-{datetime.now().strftime('%M%S')}"
@@ -163,113 +150,115 @@ def process_and_save_pdf(uploaded_file):
     extracted_errors = []
     seen = set()
 
-    # Regex ciblée : exige un vrai code d'erreur (E02, ERR 12, ALARM 3, etc.)
-    code_regex = re.compile(
-        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,3}[0-9]{1,3})\b',
+    # Capture large : E02, E-02, ERR 12, AL-04, F01, Code 14, Alarme 3, etc.
+    code_pattern = re.compile(
+        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F|AL|A)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,3}[0-9]{0,3})\b',
         re.IGNORECASE
     )
-    
-    technical_alarms = [
+
+    text_alarms = [
         "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "OVERHEAT",
-        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "MOTOR FAIL"
+        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "MOTOR FAIL", "DOOR OPEN",
+        "TEMP HIGH", "TEMP LOW", "BATTERY LOW", "OCCLUSION"
     ]
 
-    progress_bar = st.progress(0, text="Analyse du manuel sans la table des matières...")
+    progress_bar = st.progress(0, text="Lecture du manuel...")
 
-    for i in range(start_page, max_scan):
-        progress_bar.progress((i - start_page + 1) / (max_scan - start_page), text=f"Lecture page {i+1} sur {max_scan}...")
-        text = reader.pages[i].extract_text() or ""
-        lines = [l.strip() for l in text.splitlines() if len(l.strip()) >= 4]
+    for i in range(max_scan):
+        progress_bar.progress((i + 1) / max_scan, text=f"Scan page {i+1} sur {max_scan}...")
+        page_text = reader.pages[i].extract_text() or ""
+        lines = [l.strip() for l in page_text.splitlines() if len(l.strip()) >= 3]
 
         idx = 0
         while idx < len(lines):
             line = lines[idx]
 
-            # REJET IMMÉDIAT DU SOMMAIRE
-            if is_table_of_contents_line(line):
+            # Rejette uniquement les lignes de sommaire avec pointillés
+            if re.search(r'\.{3,}', line) or re.search(r'\s*\.{2,}\s*\d+$', line):
                 idx += 1
                 continue
 
-            code_trouve = None
+            code_found = None
             desc = ""
 
-            match = code_regex.search(line)
+            # 1. Vérification code standard
+            match = code_pattern.search(line)
             if match:
-                code_trouve = match.group(0).upper().replace("  ", " ").strip()
-                reste = line[match.end():].strip(" :-\t|")
-                if len(reste) > 3 and not is_table_of_contents_line(reste):
-                    desc = clean_text_segment(reste)
+                raw_c = match.group(0).upper().replace("  ", " ").strip()
+                # On évite les faux positifs purs (ex: simple chiffre 0 ou 1 sans préfixe)
+                if not (len(raw_c) == 1 and raw_c.isdigit()):
+                    code_found = raw_c
+                    reste = line[match.end():].strip(" :-\t|")
+                    if len(reste) > 3:
+                        desc = clean_line_text(reste)
 
-            if not code_trouve:
-                for ta in technical_alarms:
+            # 2. Vérification alarme textuelle
+            if not code_found:
+                for ta in text_alarms:
                     if re.search(r'\b' + ta + r'\b', line, re.IGNORECASE):
-                        code_trouve = ta
+                        code_found = ta
                         reste = re.sub(r'(?i)\b' + ta + r'\b', '', line).strip(" :-\t|")
-                        if not is_table_of_contents_line(reste):
-                            desc = clean_text_segment(reste) if len(reste) > 3 else "Déclenchement d'alarme de sécurité"
+                        desc = clean_line_text(reste) if len(reste) > 3 else "Déclenchement d'une sécurité système"
                         break
 
-            if code_trouve:
-                clean_k = re.sub(r'[^A-Z0-9]', '', code_trouve)
+            if code_found:
+                clean_k = re.sub(r'[^A-Z0-9]', '', code_found)
                 
-                # Élimine les faux positifs et titres de chapitres
-                if clean_k not in seen and len(clean_k) >= 2 and not any(stop in code_trouve for stop in ["ISO", "PAGE", "REV", "FIG", "TABLE", "SECTION"]):
-                    
-                    # Lecture des lignes suivantes pour obtenir une phrase complète
-                    next_sentences = []
+                # Évite les mots d'édition
+                if clean_k not in seen and len(clean_k) >= 2 and not any(stop in code_found for stop in ["ISO", "PAGE", "REV", "FIG", "TABLE", "SECTION"]):
+                    seen.add(clean_k)
+
+                    # Récupération du contexte sur les 2 ou 3 lignes suivantes
+                    next_lines = []
                     step = 1
                     while (idx + step < len(lines)) and step <= 3:
                         nxt = lines[idx + step]
-                        if is_table_of_contents_line(nxt) or code_regex.search(nxt):
+                        if re.search(r'\.{3,}', nxt) or code_pattern.search(nxt):
                             break
-                        cleaned_nxt = clean_text_segment(nxt)
-                        if len(cleaned_nxt) > 4:
-                            next_sentences.append(cleaned_nxt)
+                        cln_nxt = clean_line_text(nxt)
+                        if len(cln_nxt) > 3:
+                            next_lines.append(cln_nxt)
                         step += 1
 
-                    if next_sentences:
+                    if next_lines:
                         if not desc:
-                            desc = next_sentences[0]
-                            explication = " ".join(next_sentences[1:]) if len(next_sentences) > 1 else "Vérifier le sous-ensemble mécanique et la connectique."
+                            desc = next_lines[0]
+                            explication = " ".join(next_lines[1:]) if len(next_lines) > 1 else "Vérifier le sous-ensemble et la connectique."
                         else:
-                            explication = " ".join(next_sentences)
+                            explication = " ".join(next_lines)
                         idx += (step - 1)
                     else:
-                        desc = desc or "Anomalie technique signalée par l'appareil."
-                        explication = "Vérifier la connectique, inspecter le composant et contrôler l'alimentation au multimètre."
+                        desc = desc or "Anomalie signalée par l'appareil."
+                        explication = "Contrôler les connecteurs, vérifier les fusibles et tester l'alimentation au multimètre."
 
-                    # On s'assure que les phrases sont propres et sans résidus
-                    desc = clean_text_segment(desc)
-                    explication = clean_text_segment(explication)
+                    desc = clean_line_text(desc)
+                    explication = clean_line_text(explication)
 
                     if not desc.endswith('.'):
                         desc += "."
                     if not explication.endswith('.'):
                         explication += "."
 
-                    # Si après nettoyage la description contient encore des points répétés, on rejette
-                    if ".." not in desc and ".." not in explication:
-                        seen.add(clean_k)
+                    # Catégorisation
+                    full_c = f"{code_found} {desc} {explication}".lower()
+                    if any(w in full_c for w in ["moteur", "rotor", "pompe", "porte", "couvercle", "verrou", "mecanique"]):
+                        cat = "⚙️ Hardware (Mécanique & Moteur)"
+                    elif any(w in full_c for w in ["carte", "cpu", "firmware", "bus", "ram", "rom", "software"]):
+                        cat = "💻 Software (Cartes, Firmware, Bus)"
+                    else:
+                        cat = "⚡ Hardware (Électrique & Capteurs)"
 
-                        full_c = f"{code_trouve} {desc} {explication}".lower()
-                        if any(w in full_c for w in ["moteur", "rotor", "pompe", "porte", "couvercle", "verrou"]):
-                            cat = "⚙️ Hardware (Mécanique & Moteur)"
-                        elif any(w in full_c for w in ["carte", "cpu", "firmware", "bus", "ram", "rom"]):
-                            cat = "💻 Software (Cartes, Firmware, Bus)"
-                        else:
-                            cat = "⚡ Hardware (Électrique & Capteurs)"
-
-                        extracted_errors.append((
-                            eq_id,
-                            cat,
-                            code_trouve,
-                            desc,
-                            f"Le manuel constructeur indique : {desc}",
-                            "Vérifier le câblage et s'assurer que les connecteurs sont fermement enclenchés.",
-                            f"Action indiquée dans la documentation : {explication}",
-                            "Lancer un cycle de test pour valider l'effacement du défaut.",
-                            "Prendre les mesures de tension au multimètre (+5V / +12V / 24V) et vérifier la terre."
-                        ))
+                    extracted_errors.append((
+                        eq_id,
+                        cat,
+                        code_found,
+                        desc,
+                        f"Le manuel signale : {desc}",
+                        "Vérifier les câbles et s'assurer que les connecteurs sont fermement enclenchés.",
+                        f"Procédure : {explication}",
+                        "Lancer un autodiagnostic en mode service pour valider l'effacement du défaut.",
+                        "Prendre les mesures de tension au multimètre (+5V / +12V / 24V) et vérifier la terre."
+                    ))
             idx += 1
 
     progress_bar.empty()
@@ -279,7 +268,7 @@ def process_and_save_pdf(uploaded_file):
             eq_id,
             "⚙️ Hardware (Mécanique & Moteur)",
             "MAINT-01",
-            "Inspection périodique et maintenance préventive générale.",
+            "Inspection périodique et maintenance générale.",
             "Contrôle technique régulier de l'équipement à l'atelier.",
             "Vérifier l'intégrité de la structure mécanique et des fixations.",
             "Nettoyer les filtres de ventilation et vérifier les connexions internes.",
@@ -403,11 +392,11 @@ with col_gauche:
         if uploaded_pdf is not None:
             file_key = f"done_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if file_key not in st.session_state:
-                with st.spinner("Indexation sans les tables des matières..."):
+                with st.spinner("Extraction complète des pannes..."):
                     new_id, count = process_and_save_pdf(uploaded_pdf)
                     st.session_state[file_key] = True
                     st.session_state["latest_eq_id"] = new_id
-                    st.success(f"Manuel indexé : {count} panne(s) répertoriée(s).")
+                    st.success(f"Manuel indexé : {count} panne(s) trouvée(s) !")
                     st.rerun()
 
 # COLONNE DROITE
@@ -436,7 +425,6 @@ with col_droite:
 
         st.divider()
 
-        # AFFICHAGE EN PHRASES COMPLÈTES SANS POINTILLÉS
         st.error(f"### {err['code']} — {err['titre']}")
         st.write(f"**Ce qui se passe :** {err['probleme']}")
 
