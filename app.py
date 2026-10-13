@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import sqlite3
 from datetime import datetime
 import streamlit as st
@@ -15,9 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-DB_PATH = "biomed_v10.db"
+DB_PATH = "biomed_v11.db"
 
-# --- 1. BASE DE DONNÉES SIMPLE & PROPRE ---
+# --- 1. BASE DE DONNÉES SIMPLE ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -103,17 +104,6 @@ def init_db():
                     "Lance un remplissage et écoute si l'électrovanne claque bien pour s'ouvrir.",
                     "Multimètre en Volts AC : 230 V mesurés sur les cosses de l'électrovanne quand elle demande l'eau."
                 ),
-                (
-                    "EQ-WD40",
-                    "💻 Software (Cartes, Firmware, Bus)",
-                    "F-09",
-                    "Erreur Mémoire / Cycle interrompu",
-                    "La machine se fige en plein milieu du cycle de désinfection.",
-                    "Contrôler la pile bouton 3 V sur la carte CPU principale (sauvegarde des paramètres).",
-                    "Vérifier l'absence d'humidité ou de traces d'oxydation sur les broches de l'EEPROM.",
-                    "Remplacer la carte processeur si l'erreur se répète après mise hors tension de 5 minutes.",
-                    "Tension pile sauvegarde = 3,0 V DC mini (si < 2,7 V, la remplacer)."
-                ),
                 # FLUIDO
                 (
                     "EQ-FLUIDO",
@@ -156,7 +146,94 @@ def get_errors(id_inv, categorie="Toutes les catégories"):
             "step1": r[4], "step2": r[5], "step3": r[6], "mesure": r[7]
         } for r in c.fetchall()]
 
-# --- 2. GÉNÉRATEUR RAPPORT PDF NF EN 62353 ---
+# --- 2. VRAI PARSEUR PDF RAPIDE AVEC BARRE DE PROGRESSION ---
+
+def process_and_save_pdf(uploaded_file):
+    reader = PdfReader(uploaded_file)
+    total_pages = len(reader.pages)
+    max_scan = min(total_pages, 80)  # Limite pour éviter les blocages sur les gros manuels
+    
+    # Nettoyage du nom pour créer l'appareil
+    base_name = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
+    eq_id = f"EQ-{re.sub(r'[^A-Z0-9]', '', base_name[:6].upper())}-{datetime.now().strftime('%M%S')}"
+
+    extracted_errors = []
+    seen = set()
+
+    code_regex = re.compile(r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|E-|AL-|F-)\s*[:#\-]?\s*([A-Za-z0-9]{1,6})\b', re.IGNORECASE)
+
+    progress_bar = st.progress(0, text="Lecture des pages du manuel...")
+
+    for i in range(max_scan):
+        progress_bar.progress((i + 1) / max_scan, text=f"Analyse de la page {i+1} sur {max_scan}...")
+        text = reader.pages[i].extract_text() or ""
+        lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 5]
+
+        for idx, line in enumerate(lines):
+            match = code_regex.search(line)
+            if match:
+                code_trouve = match.group(0).upper().replace("  ", " ")
+                clean_k = re.sub(r'[^A-Z0-9]', '', code_trouve)
+
+                if clean_k not in seen and len(clean_k) >= 2:
+                    seen.add(clean_k)
+                    
+                    suite = line[match.end():].strip(" :-\t")
+                    desc = suite if len(suite) > 5 else "Anomalie signalée par l'appareil"
+                    
+                    next_info = lines[idx+1] if idx+1 < len(lines) else "Vérifier les tensions d'alimentation et les connecteurs."
+
+                    # Catégorisation automatique simple
+                    full_txt = f"{code_trouve} {desc} {next_info}".lower()
+                    if any(w in full_txt for w in ["moteur", "rotor", "pompe", "meca", "door", "couvercle"]):
+                        cat = "⚙️ Hardware (Mécanique & Moteur)"
+                    elif any(w in full_txt for w in ["carte", "cpu", "firmware", "com", "bus", "ram", "rom"]):
+                        cat = "💻 Software (Cartes, Firmware, Bus)"
+                    else:
+                        cat = "⚡ Hardware (Électrique & Capteurs)"
+
+                    extracted_errors.append((
+                        eq_id,
+                        cat,
+                        code_trouve,
+                        desc[:60],
+                        f"Le manuel signale : {desc}",
+                        "Vérifier les câbles et nappes reliés au sous-ensemble.",
+                        f"Action recommandée : {next_info[:120]}",
+                        "Effectuer un autodiagnostic en mode service constructeur.",
+                        "Contrôler les tensions secondaires (+5 V / +12 V / +24 V DC) au multimètre."
+                    ))
+
+    progress_bar.empty()
+
+    # Si aucune panne standard n'a été détectée, on crée une fiche générique d'atelier
+    if not extracted_errors:
+        extracted_errors.append((
+            eq_id,
+            "⚙️ Hardware (Mécanique & Moteur)",
+            "MAINT-01",
+            "Contrôle technique général",
+            "Inspection périodique et maintenance préventive.",
+            "Vérifier l'état mécanique et les liaisons électriques.",
+            "Nettoyer les filtres et vérifier les sécurités mécaniques.",
+            "Réaliser un cycle d'essai complet à blanc.",
+            "Continuité de terre < 0,20 Ohm au contrôleur de sécurité."
+        ))
+
+    # Sauvegarde directe dans SQLite
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO equipments VALUES (?, ?, ?)", (eq_id, base_name[:40], "Atelier"))
+        c.executemany("""
+            INSERT INTO error_records 
+            (id_inv, categorie, code, nom_panne, probleme, action1, action2, action3, mesure_multimetre) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, extracted_errors)
+        conn.commit()
+
+    return eq_id, len(extracted_errors)
+
+# --- 3. RAPPORT PDF ---
 
 def make_pdf(eq_info, error_info):
     buf = io.BytesIO()
@@ -226,7 +303,7 @@ def make_pdf(eq_info, error_info):
     return buf
 
 # =========================================================================
-# 3. INTERFACE UTILISATEUR FLUIDE
+# 4. INTERFACE ATELIER
 # =========================================================================
 
 st.title("🔧 Atelier Biomédical — Dépannage Rapide")
@@ -236,12 +313,19 @@ eq_keys = list(equipments.keys())
 
 col_gauche, col_droite = st.columns([1, 2], gap="large")
 
-# COLONNE DE GAUCHE : SÉLECTION MATÉRIEL
+# 1. SÉLECTION ET AJOUT DU MANUEL
 with col_gauche:
     st.subheader("1. Choisis l'appareil")
+    
+    # Présélection de l'appareil récemment ajouté si présent en session
+    default_idx = 0
+    if "latest_eq_id" in st.session_state and st.session_state["latest_eq_id"] in eq_keys:
+        default_idx = eq_keys.index(st.session_state["latest_eq_id"])
+
     selected_eq_id = st.selectbox(
         "Appareil sous maintenance :",
         options=eq_keys,
+        index=default_idx,
         format_func=lambda x: equipments[x]['nom'],
         label_visibility="collapsed"
     )
@@ -249,16 +333,25 @@ with col_gauche:
     eq = equipments[selected_eq_id]
     st.success(f"📍 **Service :** {eq['service']}")
 
-    with st.expander("➕ Ajouter un manuel PDF"):
-        new_pdf = st.file_uploader("Glisse le fichier PDF :", type=["pdf"])
-        if new_pdf:
-            st.info("Manuel en cours d'indexation...")
+    st.divider()
 
-# COLONNE DE DROITE : MENUS DÉROULANTS (CATÉGORIES + PANNES)
+    with st.expander("📥 Ajouter un nouveau manuel PDF", expanded=False):
+        uploaded_pdf = st.file_uploader("Glisse le PDF du manuel ici :", type=["pdf"])
+        if uploaded_pdf is not None:
+            # Traitement unique par fichier pour ne pas boucler
+            file_key = f"done_{uploaded_pdf.name}_{uploaded_pdf.size}"
+            if file_key not in st.session_state:
+                with st.spinner("Indexation réelle du PDF en cours..."):
+                    new_id, count = process_and_save_pdf(uploaded_pdf)
+                    st.session_state[file_key] = True
+                    st.session_state["latest_eq_id"] = new_id
+                    st.success(f"Manuel indexé : {count} panne(s) enregistrée(s) !")
+                    st.rerun()
+
+# 2. CATÉGORIES ET PANNES
 with col_droite:
     st.subheader("2. Sélectionne le type et le code panne")
 
-    # 1. MENU DÉROULANT DES CATÉGORIES
     categories_disponibles = [
         "Toutes les catégories",
         "⚙️ Hardware (Mécanique & Moteur)",
@@ -266,30 +359,19 @@ with col_droite:
         "💻 Software (Cartes, Firmware, Bus)"
     ]
     
-    cat_choisie = st.selectbox(
-        "Grand domaine de panne :",
-        options=categories_disponibles
-    )
+    cat_choisie = st.selectbox("Grand domaine de panne :", options=categories_disponibles)
 
-    # Récupération des pannes filtrées selon la catégorie
     errors = get_errors(selected_eq_id, cat_choisie)
 
     if errors:
-        # 2. MENU DÉROULANT DES PANNES
         options_pannes = [f"{e['code']} : {e['titre']}" for e in errors]
-        
-        panne_choisie = st.selectbox(
-            "Code alarme ou symptôme :",
-            options=options_pannes
-        )
+        panne_choisie = st.selectbox("Code alarme ou symptôme :", options=options_pannes)
 
-        # Récupération des détails de la panne sélectionnée
         index_choisi = options_pannes.index(panne_choisie)
         err = errors[index_choisi]
 
         st.divider()
 
-        # AFFICHAGE VISUEL NATIF STREAMLIT (SANS HTML)
         st.error(f"### {err['code']} — {err['titre']}")
         st.write(f"**Ce qui se passe :** {err['probleme']}")
 
@@ -300,7 +382,6 @@ with col_droite:
 
         st.warning(f"⚡ **Où mesurer au multimètre :** {err['mesure']}")
 
-        # BOUTONS D'ACTION
         st.divider()
         c1, c2 = st.columns(2)
         with c1:
@@ -308,7 +389,7 @@ with col_droite:
             st.download_button(
                 label="📄 Télécharger la Fiche Certifiée (PDF)",
                 data=pdf_data,
-                file_name=f"Intervention_{err['code']}.pdf",
+                file_name=f"Fiche_{err['code']}.pdf",
                 mime="application/pdf",
                 type="primary",
                 use_container_width=True
