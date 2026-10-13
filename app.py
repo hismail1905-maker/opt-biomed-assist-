@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-DB_PATH = "biomed_data.db"
+DB_PATH = "biomed_data_v2.db"
 
 # --- 1. GESTION PERSISTANTE SQLITE AVEC ÉQUIPEMENTS DYNAMIQUES ---
 
