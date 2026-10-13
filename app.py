@@ -16,9 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-DB_PATH = "biomed_v12.db"
+DB_PATH = "biomed_v13.db"
 
-# --- 1. BASE DE DONNÉES ---
+# --- BASE DE DONNÉES ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -58,63 +58,49 @@ def init_db():
                 (id_inv, categorie, code, nom_panne, probleme, action1, action2, action3, mesure_multimetre) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
-                # ROTANTA
                 (
                     "EQ-ROTANTA",
                     "⚙️ Hardware (Mécanique & Moteur)",
                     "E-02",
-                    "Moteur bloqué / Vitesse non détectée",
-                    "La centrifugeuse refuse de tourner ou s'arrête net car elle ne capte plus la rotation du bol.",
-                    "Fais tourner le bol à la main (appareil éteint) : ça doit tourner fluide sans bruit ni frottement.",
-                    "Sous la cuve, vérifie que le capteur noir n'est pas tordu ou trop loin de l'aimant (écart d'environ 1 millimètre).",
-                    "Vérifie que la nappe du moteur est bien branchée sur la grosse carte électronique en bas.",
-                    "Multimètre en Volts DC : teste entre le fil rouge et noir du capteur, tu dois avoir 5 Volts stables."
+                    "Défaut de vitesse ou blocage mécanique du rotor",
+                    "La centrifugeuse refuse de se lancer ou coupe son cycle en cours car la carte électronique ne reçoit aucun signal du capteur de vitesse.",
+                    "Faire tourner le rotor manuellement à l'arrêt pour vérifier qu'aucun frottement mécanique ne freine l'axe du moteur.",
+                    "Contrôler sous la cuve que le capteur tachymétrique est bien aligné face à son aimant, avec un écart d'environ 1 millimètre.",
+                    "Vérifier le branchement complet du connecteur moteur sur la carte de commande principale située dans le socle.",
+                    "Prendre la mesure en Volts continu (DC) entre le fil rouge et le fil noir du capteur : la tension doit être de 5 Volts constants."
                 ),
                 (
                     "EQ-ROTANTA",
                     "⚙️ Hardware (Mécanique & Moteur)",
                     "LID OPEN",
-                    "Sécurité couvercle : Capot détecté ouvert",
-                    "Même quand tu fermes le capot, l'écran indique qu'il est ouvert et bloque le départ du rotor.",
-                    "Regarde si les deux crochets métalliques du couvercle rentrent bien à fond dans les fentes.",
-                    "Écoute si tu entends le petit 'clic' mécanique quand tu enfonces le loquet de verrouillage.",
-                    "Débranche l'appareil et teste le micro-contacteur au multimètre en mode continuité (bip).",
-                    "Mode Bip : 0 Ohm quand le bouton est appuyé, circuit ouvert (rien) quand il est relâché."
+                    "Sécurité couvercle : Détection de capot ouvert",
+                    "Le verrouillage électronique refuse le démarrage car le micro-contacteur ne confirme pas la fermeture complète du couvercle.",
+                    "Vérifier visuellement que les deux crochets métalliques s'engagent bien jusqu'au fond des fentes de verrouillage.",
+                    "Actionner manuellement le loquet pour vérifier la présence du déclic mécanique du contacteur de sécurité.",
+                    "Appareil hors tension, débrancher les cosses du micro-contacteur et contrôler son ouverture et sa fermeture au multimètre.",
+                    "Mettre le multimètre en mode continuité (bip sonore) : 0 Ohm mesuré contact appuyé, circuit ouvert contact relâché."
                 ),
-                (
-                    "EQ-ROTANTA",
-                    "💻 Software (Cartes, Firmware, Bus)",
-                    "ERR-COMM",
-                    "Défaut de communication Carte Commande / Puissance",
-                    "L'écran s'allume mais affiche un trait ou refuse de répondre aux touches du clavier.",
-                    "Contrôler la nappe grise reliant la façade avant à la carte mère de fond de panier.",
-                    "Vérifier les tensions de veille en sortie de bloc d'alimentation (+5 V et +12 V).",
-                    "Effectuer un reset usine en maintenant la touche 'STOP' pendant 5 secondes à l'allumage.",
-                    "Tensions d'alimentation carte = +5 V DC ± 0,2 V et +12 V DC stables."
-                ),
-                # WD40
                 (
                     "EQ-WD40",
                     "⚡ Hardware (Électrique & Capteurs)",
                     "AL-04",
-                    "Manque d'eau : Remplissage impossible",
-                    "Le laveur sonne et s'arrête au démarrage parce que l'eau n'arrive pas assez vite.",
-                    "Vérifie que la vanne d'eau au mur derrière la machine est bien ouverte à fond.",
-                    "Dévisse le tuyau d'arrivée d'eau et nettoie la petite grille en plastique (souvent bouchée par le calcaire).",
-                    "Lance un remplissage et écoute si l'électrovanne claque bien pour s'ouvrir.",
-                    "Multimètre en Volts AC : 230 V mesurés sur les cosses de l'électrovanne quand elle demande l'eau."
+                    "Alimentation en eau insuffisante : Remplissage impossible",
+                    "Le niveau d'eau minimal n'est pas atteint dans le temps prévu, ce qui bloque le lancement du cycle de lavage.",
+                    "Vérifier que le robinet d'arrivée d'eau au mur est complètement ouvert et que le tuyau n'est pas pincé derrière la machine.",
+                    "Démonter le raccord d'arrivée d'eau et nettoyer soigneusement la grille de filtration souvent obstruée par des dépôts calcaires.",
+                    "Contrôler que la bobine de l'électrovanne d'arrivée d'eau s'active bien lors de la phase de remplissage.",
+                    "Mesurer la tension alternative sur les cosses de l'électrovanne : vous devez relever 230 Volts lors de l'appel d'eau."
                 ),
-                # FLUIDO
                 (
                     "EQ-FLUIDO",
                     "⚡ Hardware (Électrique & Capteurs)",
                     "AIR IN LINE",
-                    "Fausse alarme bulle d'air dans la tubulure",
-                    "L'alarme sonne en continu alors qu'il n'y a pas d'air dans la tubulure.",
-                    "Passe un coton-tige avec un peu d'alcool sur les deux petites vitres du capteur (résidus de gel séché).",
-                    "Vérifie que la tubulure plastique est bien enfoncée tout au fond de la rainure.",
-                    "Redémarre l'appareil avec une poche pleine neuve bien purgée.",
-                    "Si le bip persiste après nettoyage complet, la cellule optique est usée et doit être remplacée."
+                    "Détection d'air : Fausse alarme sur la ligne de perfusion",
+                    "Le capteur ultrasonique détecte une discontinuité dans la tubulure et coupe la chauffe par mesure de sécurité.",
+                    "Nettoyer les deux prismes de mesure avec un chiffon doux imbibé d'alcool isopropylique pour enlever tout résidu sec.",
+                    "S'assurer que la tubulure en plastique est fermement poussée au fond de la rainure de détection sur toute sa longueur.",
+                    "Purger totalement la ligne avec une poche pleine neuve pour évacuer la moindre microbulle coincée dans la chambre.",
+                    "Vérifier la propreté des lentilles optiques. Si l'alarme persiste avec une tubulure purgée, le capteur est à remplacer."
                 )
             ])
         conn.commit()
@@ -146,12 +132,11 @@ def get_errors(id_inv, categorie="Toutes les catégories"):
             "step1": r[4], "step2": r[5], "step3": r[6], "mesure": r[7]
         } for r in c.fetchall()]
 
-# --- 2. PARSEUR PDF ÉTENDU & SANS FILTRE TROP STRICT ---
+# --- PARSEUR SANS PHRASES COUPÉES ---
 
 def process_and_save_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
-    total_pages = len(reader.pages)
-    max_scan = min(total_pages, 100)
+    max_scan = min(len(reader.pages), 80)
     
     base_name = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
     eq_id = f"EQ-{re.sub(r'[^A-Z0-9]', '', base_name[:6].upper())}-{datetime.now().strftime('%M%S')}"
@@ -159,23 +144,20 @@ def process_and_save_pdf(uploaded_file):
     extracted_errors = []
     seen = set()
 
-    # Regex large qui attrape TOUS les formats (E01, Err 2, F04, Alarm 12, ou codes courts)
     code_regex = re.compile(
-        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F|AL|A)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,4}[0-9]{0,3})\b',
+        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F|AL)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,4}[0-9]{0,3})\b',
         re.IGNORECASE
     )
     
-    # Mots textuels courants sur les écrans
     text_alarms = [
         "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "OVERHEAT",
-        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "COMM ERROR", "MOTOR FAIL",
-        "TACHO", "DOOR OPEN", "TEMP HIGH", "TEMP LOW", "OCCLUSION"
+        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "MOTOR FAIL", "DOOR OPEN"
     ]
 
-    progress_bar = st.progress(0, text="Lecture approfondie du manuel...")
+    progress_bar = st.progress(0, text="Lecture complète du manuel...")
 
     for i in range(max_scan):
-        progress_bar.progress((i + 1) / max_scan, text=f"Extraction page {i+1} / {max_scan}...")
+        progress_bar.progress((i + 1) / max_scan, text=f"Lecture page {i+1} sur {max_scan}...")
         text = reader.pages[i].extract_text() or ""
         lines = [l.strip() for l in text.splitlines() if len(l.strip()) >= 3]
 
@@ -185,7 +167,6 @@ def process_and_save_pdf(uploaded_file):
             code_trouve = None
             desc = ""
 
-            # 1. Test code conventionnel (E02, AL-04, etc.)
             match = code_regex.search(line)
             if match:
                 code_trouve = match.group(0).upper().replace("  ", " ").strip()
@@ -193,50 +174,51 @@ def process_and_save_pdf(uploaded_file):
                 if len(reste) > 3:
                     desc = reste
 
-            # 2. Test alarme textuelle (LID OPEN, NO FLOW, etc.)
             if not code_trouve:
                 for ta in text_alarms:
                     if re.search(r'\b' + ta + r'\b', line, re.IGNORECASE):
                         code_trouve = ta
                         reste = re.sub(r'(?i)\b' + ta + r'\b', '', line).strip(" :-\t|")
-                        desc = reste if len(reste) > 3 else "Déclenchement alarme sécurité"
+                        desc = reste if len(reste) > 3 else "Déclenchement d'une alarme de sécurité"
                         break
 
-            # Si on a trouvé un code valide
             if code_trouve:
                 clean_k = re.sub(r'[^A-Z0-9]', '', code_trouve)
                 
-                # On évite les faux positifs évidents (mots génériques de mise en page)
-                if clean_k not in seen and len(clean_k) >= 2 and not any(stop in code_trouve for stop in ["ISO", "PAGE", "REV", "FIG", "TABLE", "SECTION"]):
+                if clean_k not in seen and len(clean_k) >= 2 and not any(stop in code_trouve for stop in ["ISO", "PAGE", "REV", "FIG", "TABLE"]):
                     seen.add(clean_k)
 
-                    # On attrape ce qu'il y a sur les lignes d'après pour la cause et la solution
-                    next_actions = []
-                    step_forward = 1
-                    while (idx + step_forward < len(lines)) and step_forward <= 3:
-                        next_l = lines[idx + step_forward]
-                        # Si la ligne suivante ressemble déjà à un nouveau code, on s'arrête
-                        if code_regex.search(next_l) or any(ta in next_l.upper() for ta in text_alarms):
+                    # Reconstitution des phrases complètes sur les lignes suivantes
+                    collected_lines = []
+                    step = 1
+                    while (idx + step < len(lines)) and step <= 4:
+                        nxt = lines[idx + step]
+                        if code_regex.search(nxt) or any(ta in nxt.upper() for ta in text_alarms):
                             break
-                        next_actions.append(next_l)
-                        step_forward += 1
+                        collected_lines.append(nxt)
+                        step += 1
 
-                    if next_actions:
+                    if collected_lines:
                         if not desc:
-                            desc = next_actions[0]
-                            action_txt = " ".join(next_actions[1:]) if len(next_actions) > 1 else "Vérifier le sous-ensemble et les câbles."
+                            desc = collected_lines[0]
+                            explication = " ".join(collected_lines[1:]) if len(collected_lines) > 1 else "Vérifier le sous-ensemble mécanique et la connectique."
                         else:
-                            action_txt = " ".join(next_actions)
-                        idx += (step_forward - 1)
+                            explication = " ".join(collected_lines)
+                        idx += (step - 1)
                     else:
-                        desc = desc or "Anomalie signalée par le système"
-                        action_txt = "Inspecter les connecteurs, vérifier les fusibles et tester au multimètre."
+                        desc = desc or "Anomalie technique signalée par l'appareil."
+                        explication = "Contrôler les câbles d'alimentation, les capteurs associés et les fusibles de protection."
 
-                    # Catégorisation intelligente sans rien jeter
-                    full_txt = f"{code_trouve} {desc} {action_txt}".lower()
-                    if any(w in full_txt for w in ["moteur", "motor", "rotor", "pompe", "meca", "door", "couvercle", "lid", "verrou"]):
+                    # Nettoyage pour s'assurer que les phrases se terminent correctement
+                    if not desc.endswith('.'):
+                        desc += "."
+                    if not explication.endswith('.'):
+                        explication += "."
+
+                    full_context = f"{code_trouve} {desc} {explication}".lower()
+                    if any(w in full_context for w in ["moteur", "rotor", "pompe", "porte", "couvercle", "verrou", "mecanique"]):
                         cat = "⚙️ Hardware (Mécanique & Moteur)"
-                    elif any(w in full_txt for w in ["carte", "cpu", "firmware", "com", "bus", "ram", "rom", "software", "eeprom"]):
+                    elif any(w in full_context for w in ["carte", "cpu", "firmware", "bus", "ram", "rom", "software"]):
                         cat = "💻 Software (Cartes, Firmware, Bus)"
                     else:
                         cat = "⚡ Hardware (Électrique & Capteurs)"
@@ -245,35 +227,33 @@ def process_and_save_pdf(uploaded_file):
                         eq_id,
                         cat,
                         code_trouve,
-                        desc[:60],
-                        f"Le constructeur indique : {desc}",
-                        f"1. Contrôle visuel et connectique : vérifier l'état des câbles associés.",
-                        f"2. Action recommandée : {action_txt[:130]}",
-                        "3. Lancer un autotest en mode service pour valider la disparition de l'erreur.",
-                        "Multimètre : vérifier les tensions d'alimentation (+5V, +12V, +24V DC) et la continuité."
+                        desc,
+                        f"Le manuel constructeur signale : {desc}",
+                        "Inspecter l'état visuel du sous-ensemble et vérifier que les connecteurs sont bien enfichés.",
+                        f"Procédure indiquée : {explication}",
+                        "Lancer un cycle de test complet ou un autodiagnostic pour confirmer la disparition du défaut.",
+                        "Contrôler les tensions d'alimentation principales (+5V, +12V ou 24V) et la continuité à la terre."
                     ))
             idx += 1
 
     progress_bar.empty()
 
-    # Si le PDF est un format non standard ou un scan, on ajoute au moins une base exploitable
     if not extracted_errors:
         extracted_errors.append((
             eq_id,
             "⚙️ Hardware (Mécanique & Moteur)",
             "MAINT-01",
-            "Contrôle atelier et sécurité",
-            "Maintenance préventive générale de l'appareil.",
-            "Vérifier l'état mécanique et les liaisons électriques.",
-            "Nettoyer les filtres et vérifier les sécurités mécaniques.",
-            "Réaliser un cycle d'essai complet à blanc.",
-            "Continuité de terre < 0,20 Ohm au contrôleur de sécurité."
+            "Inspection périodique et maintenance préventive générale.",
+            "Contrôle technique régulier de l'équipement à l'atelier.",
+            "Vérifier l'intégrité de la structure mécanique et des fixations.",
+            "Nettoyer les filtres de ventilation et vérifier les connexions internes.",
+            "Procéder aux essais fonctionnels complets à vide et en charge.",
+            "Mesurer la résistance de terre de protection : valeur exigée inférieure à 0,20 Ohm."
         ))
 
-    # Sauvegarde directe dans SQLite
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO equipments VALUES (?, ?, ?)", (eq_id, base_name[:40], "Atelier"))
+        c.execute("INSERT OR REPLACE INTO equipments VALUES (?, ?, ?)", (eq_id, base_name, "Atelier"))
         c.executemany("""
             INSERT INTO error_records 
             (id_inv, categorie, code, nom_panne, probleme, action1, action2, action3, mesure_multimetre) 
@@ -283,7 +263,7 @@ def process_and_save_pdf(uploaded_file):
 
     return eq_id, len(extracted_errors)
 
-# --- 3. RAPPORT PDF CERTIFIÉ ---
+# --- RAPPORT PDF ---
 
 def make_pdf(eq_info, error_info):
     buf = io.BytesIO()
@@ -352,9 +332,7 @@ def make_pdf(eq_info, error_info):
     buf.seek(0)
     return buf
 
-# =========================================================================
-# 4. INTERFACE ATELIER
-# =========================================================================
+# --- INTERFACE UTILISATEUR ---
 
 st.title("🔧 Atelier Biomédical — Dépannage Rapide")
 
@@ -363,7 +341,7 @@ eq_keys = list(equipments.keys())
 
 col_gauche, col_droite = st.columns([1, 2], gap="large")
 
-# 1. SÉLECTION ET AJOUT DU MANUEL
+# COLONNE GAUCHE
 with col_gauche:
     st.subheader("1. Choisis l'appareil")
     
@@ -389,14 +367,14 @@ with col_gauche:
         if uploaded_pdf is not None:
             file_key = f"done_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if file_key not in st.session_state:
-                with st.spinner("Extraction exhaustive des pannes en cours..."):
+                with st.spinner("Analyse du manuel sans coupure de phrase..."):
                     new_id, count = process_and_save_pdf(uploaded_pdf)
                     st.session_state[file_key] = True
                     st.session_state["latest_eq_id"] = new_id
-                    st.success(f"Manuel indexé : {count} panne(s) trouvée(s) !")
+                    st.success(f"Manuel indexé : {count} panne(s) répertoriée(s).")
                     st.rerun()
 
-# 2. CATÉGORIES ET PANNES
+# COLONNE DROITE
 with col_droite:
     st.subheader("2. Sélectionne le type et le code panne")
 
@@ -422,6 +400,7 @@ with col_droite:
 
         st.divider()
 
+        # AFFICHAGE EN PHRASES COMPLÈTES SANS COUPURE
         st.error(f"### {err['code']} — {err['titre']}")
         st.write(f"**Ce qui se passe :** {err['probleme']}")
 
