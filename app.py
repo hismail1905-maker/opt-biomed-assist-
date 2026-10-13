@@ -1,6 +1,5 @@
 import io
 import os
-import re
 import sqlite3
 from datetime import datetime
 import streamlit as st
@@ -11,106 +10,14 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 st.set_page_config(
-    page_title="BioMed Workshop UI",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    page_title="Atelier Biomédical",
+    page_icon="🔧",
+    layout="wide"
 )
 
-DB_PATH = "biomed_v8.db"
+DB_PATH = "biomed_v10.db"
 
-# --- STYLE GRAPHIQUE MODERNE (CARTES VISUELLES & ÉPURÉES) ---
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-    }
-    code, pre {
-        font-family: 'JetBrains Mono', monospace !important;
-    }
-    
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 1400px !important;
-    }
-
-    /* En-tête atelier */
-    .top-banner {
-        background: #0f172a;
-        color: white;
-        padding: 0.9rem 1.4rem;
-        border-radius: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1.2rem;
-    }
-    
-    /* Carte de diagnostic héroïque */
-    .hero-solution {
-        background: #ffffff;
-        border: 2px solid #0284c7;
-        border-radius: 14px;
-        padding: 1.4rem;
-        margin-bottom: 1.2rem;
-        box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.1);
-    }
-    
-    .badge-code {
-        background: #0284c7;
-        color: white;
-        padding: 0.35rem 0.8rem;
-        border-radius: 8px;
-        font-size: 1.1rem;
-        font-weight: 800;
-        font-family: 'JetBrains Mono', monospace;
-        display: inline-block;
-    }
-
-    /* Étapes visuelles 1, 2, 3 */
-    .step-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 0.85rem 1rem;
-        margin-bottom: 0.6rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 0.85rem;
-    }
-    
-    .step-num {
-        background: #0f172a;
-        color: white;
-        min-width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 800;
-        font-size: 0.85rem;
-    }
-    
-    .measure-box {
-        background: #fffbeb;
-        border: 1.5px dashed #f59e0b;
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-        margin-top: 0.8rem;
-        font-size: 0.9rem;
-        color: #92400e;
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- BASE DE DONNÉES & INITIALISATION ---
+# --- 1. BASE DE DONNÉES SIMPLE & PROPRE ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -118,9 +25,7 @@ def init_db():
         c.execute("""
             CREATE TABLE IF NOT EXISTS equipments (
                 id_inv TEXT PRIMARY KEY,
-                brand TEXT,
-                model TEXT,
-                icon TEXT,
+                nom TEXT,
                 service TEXT
             )
         """)
@@ -128,57 +33,98 @@ def init_db():
             CREATE TABLE IF NOT EXISTS error_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 id_inv TEXT,
+                categorie TEXT,
                 code TEXT,
-                titre TEXT,
-                icone TEXT,
-                symptome_simple TEXT,
-                etape1 TEXT,
-                etape2 TEXT,
-                etape3 TEXT,
+                nom_panne TEXT,
+                probleme TEXT,
+                action1 TEXT,
+                action2 TEXT,
+                action3 TEXT,
                 mesure_multimetre TEXT
             )
         """)
         
         c.execute("SELECT COUNT(*) FROM equipments")
         if c.fetchone()[0] == 0:
-            c.executemany("INSERT INTO equipments VALUES (?, ?, ?, ?, ?)", [
-                ("EQ-ROTANTA", "Hettich", "Rotanta 460 RF (Centrifugeuse)", "🔄", "Biochimie"),
-                ("EQ-WD40", "Wassenburg", "WD40 (Laveur d'Endoscopes)", "🚿", "Endoscopie"),
-                ("EQ-FLUIDO", "The Surgical Co", "Fluido AirGuard (Réchauffeur)", "🩸", "Bloc Opératoire")
+            c.executemany("INSERT INTO equipments VALUES (?, ?, ?)", [
+                ("EQ-ROTANTA", "Centrifugeuse Hettich Rotanta 460 RF", "Biochimie"),
+                ("EQ-WD40", "Laveur Wassenburg WD40", "Endoscopie"),
+                ("EQ-FLUIDO", "Réchauffeur Fluido AirGuard", "Bloc Opératoire")
             ])
             
-            c.executemany("INSERT INTO error_records (id_inv, code, titre, icone, symptome_simple, etape1, etape2, etape3, mesure_multimetre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            c.executemany("""
+                INSERT INTO error_records 
+                (id_inv, categorie, code, nom_panne, probleme, action1, action2, action3, mesure_multimetre) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                # ROTANTA
                 (
-                    "EQ-ROTANTA", "E-02", "Erreur Vitesse / Tachymètre", "⚡",
-                    "Le moteur ne tourne pas ou la carte ne lit pas la vitesse de rotation.",
-                    "Contrôler que le rotor tourne librement à la main sans frottement.",
-                    "Vérifier l'alignement et l'espacement du capteur sous la cuve.",
-                    "Inspecter la connectique du moteur sur la carte de puissance.",
-                    "Entrefer capteur = 0,8 mm | Tension capteur = 5 V DC"
+                    "EQ-ROTANTA",
+                    "⚙️ Hardware (Mécanique & Moteur)",
+                    "E-02",
+                    "Moteur bloqué / Vitesse non détectée",
+                    "La centrifugeuse refuse de tourner ou s'arrête net car elle ne capte plus la rotation du bol.",
+                    "Fais tourner le bol à la main (appareil éteint) : ça doit tourner fluide sans bruit ni frottement.",
+                    "Sous la cuve, vérifie que le capteur noir n'est pas tordu ou trop loin de l'aimant (écart d'environ 1 millimètre).",
+                    "Vérifie que la nappe du moteur est bien branchée sur la grosse carte électronique en bas.",
+                    "Multimètre en Volts DC : teste entre le fil rouge et noir du capteur, tu dois avoir 5 Volts stables."
                 ),
                 (
-                    "EQ-ROTANTA", "LID OPEN", "Sécurité Verrou Couvercle", "🔒",
-                    "L'appareil refuse de démarrer car il croit que le couvercle est ouvert.",
-                    "Vérifier que les crochets mécaniques s'enclenchent à fond.",
-                    "Tester le micro-contacteur SW1 au multimètre (mode continuité).",
-                    "Contrôler la bobine de verrouillage si le loquet reste bloqué.",
-                    "Contact fermé < 0,1 Ω | Résistance bobine = 30 à 50 Ω"
+                    "EQ-ROTANTA",
+                    "⚙️ Hardware (Mécanique & Moteur)",
+                    "LID OPEN",
+                    "Sécurité couvercle : Capot détecté ouvert",
+                    "Même quand tu fermes le capot, l'écran indique qu'il est ouvert et bloque le départ du rotor.",
+                    "Regarde si les deux crochets métalliques du couvercle rentrent bien à fond dans les fentes.",
+                    "Écoute si tu entends le petit 'clic' mécanique quand tu enfonces le loquet de verrouillage.",
+                    "Débranche l'appareil et teste le micro-contacteur au multimètre en mode continuité (bip).",
+                    "Mode Bip : 0 Ohm quand le bouton est appuyé, circuit ouvert (rien) quand il est relâché."
                 ),
                 (
-                    "EQ-WD40", "AL-04", "Défaut Arrivée d'Eau / Débit", "💧",
-                    "L'eau n'arrive pas assez vite dans la cuve pour lancer le cycle.",
-                    "Contrôler la vanne d'arrivée d'eau au mur et la pression réseau.",
-                    "Dévisser et rincer le tamis de filtre en entrée de machine.",
-                    "Tester l'électrovanne d'admission d'eau (tension et bobine).",
-                    "Pression mini = 2,5 bars | Tension bobine = 24 V DC"
+                    "EQ-ROTANTA",
+                    "💻 Software (Cartes, Firmware, Bus)",
+                    "ERR-COMM",
+                    "Défaut de communication Carte Commande / Puissance",
+                    "L'écran s'allume mais affiche un trait ou refuse de répondre aux touches du clavier.",
+                    "Contrôler la nappe grise reliant la façade avant à la carte mère de fond de panier.",
+                    "Vérifier les tensions de veille en sortie de bloc d'alimentation (+5 V et +12 V).",
+                    "Effectuer un reset usine en maintenant la touche 'STOP' pendant 5 secondes à l'allumage.",
+                    "Tensions d'alimentation carte = +5 V DC ± 0,2 V et +12 V DC stables."
+                ),
+                # WD40
+                (
+                    "EQ-WD40",
+                    "⚡ Hardware (Électrique & Capteurs)",
+                    "AL-04",
+                    "Manque d'eau : Remplissage impossible",
+                    "Le laveur sonne et s'arrête au démarrage parce que l'eau n'arrive pas assez vite.",
+                    "Vérifie que la vanne d'eau au mur derrière la machine est bien ouverte à fond.",
+                    "Dévisse le tuyau d'arrivée d'eau et nettoie la petite grille en plastique (souvent bouchée par le calcaire).",
+                    "Lance un remplissage et écoute si l'électrovanne claque bien pour s'ouvrir.",
+                    "Multimètre en Volts AC : 230 V mesurés sur les cosses de l'électrovanne quand elle demande l'eau."
                 ),
                 (
-                    "EQ-FLUIDO", "AIR IN LINE", "Bulle Détectée / Capteur Sale", "🫧",
-                    "L'alarme sonne car le capteur optique croit voir de l'air dans la poche.",
-                    "Nettoyer les prismes optiques avec un coton-tige imbibé d'alcool.",
-                    "Vérifier que la tubulure est bien plaquée au fond de la fente.",
-                    "Lancer un étalonnage à blanc via le menu technicien.",
-                    "Tension capteur à vide conforme au manuel constructeur"
+                    "EQ-WD40",
+                    "💻 Software (Cartes, Firmware, Bus)",
+                    "F-09",
+                    "Erreur Mémoire / Cycle interrompu",
+                    "La machine se fige en plein milieu du cycle de désinfection.",
+                    "Contrôler la pile bouton 3 V sur la carte CPU principale (sauvegarde des paramètres).",
+                    "Vérifier l'absence d'humidité ou de traces d'oxydation sur les broches de l'EEPROM.",
+                    "Remplacer la carte processeur si l'erreur se répète après mise hors tension de 5 minutes.",
+                    "Tension pile sauvegarde = 3,0 V DC mini (si < 2,7 V, la remplacer)."
+                ),
+                # FLUIDO
+                (
+                    "EQ-FLUIDO",
+                    "⚡ Hardware (Électrique & Capteurs)",
+                    "AIR IN LINE",
+                    "Fausse alarme bulle d'air dans la tubulure",
+                    "L'alarme sonne en continu alors qu'il n'y a pas d'air dans la tubulure.",
+                    "Passe un coton-tige avec un peu d'alcool sur les deux petites vitres du capteur (résidus de gel séché).",
+                    "Vérifie que la tubulure plastique est bien enfoncée tout au fond de la rainure.",
+                    "Redémarre l'appareil avec une poche pleine neuve bien purgée.",
+                    "Si le bip persiste après nettoyage complet, la cellule optique est usée et doit être remplacée."
                 )
             ])
         conn.commit()
@@ -188,50 +134,29 @@ init_db()
 def get_equipments():
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("SELECT id_inv, brand, model, icon, service FROM equipments")
-        return {r[0]: {"brand": r[1], "model": r[2], "icon": r[3], "service": r[4]} for r in c.fetchall()}
+        c.execute("SELECT id_inv, nom, service FROM equipments")
+        return {r[0]: {"nom": r[1], "service": r[2]} for r in c.fetchall()}
 
-def get_errors(id_inv):
+def get_errors(id_inv, categorie="Toutes les catégories"):
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("SELECT code, titre, icone, symptome_simple, etape1, etape2, etape3, mesure_multimetre FROM error_records WHERE id_inv = ?", (id_inv,))
+        if categorie == "Toutes les catégories":
+            c.execute("""
+                SELECT code, nom_panne, categorie, probleme, action1, action2, action3, mesure_multimetre 
+                FROM error_records WHERE id_inv = ?
+            """, (id_inv,))
+        else:
+            c.execute("""
+                SELECT code, nom_panne, categorie, probleme, action1, action2, action3, mesure_multimetre 
+                FROM error_records WHERE id_inv = ? AND categorie = ?
+            """, (id_inv, categorie))
+        
         return [{
-            "code": r[0], "titre": r[1], "icon": r[2], "symptome": r[3],
+            "code": r[0], "titre": r[1], "categorie": r[2], "probleme": r[3],
             "step1": r[4], "step2": r[5], "step3": r[6], "mesure": r[7]
         } for r in c.fetchall()]
 
-# --- PARSEUR AUTOMATIQUE DE PDF ---
-
-def add_manual(uploaded_file):
-    reader = PdfReader(uploaded_file)
-    text = ""
-    for i in range(min(5, len(reader.pages))):
-        text += (reader.pages[i].extract_text() or "") + " "
-    
-    # Nom automatique propre
-    nom = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
-    eq_id = f"EQ-{datetime.now().strftime('%M%S')}"
-    
-    with sqlite3.connect(DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute("INSERT INTO equipments VALUES (?, ?, ?, ?, ?)", (eq_id, "Constructeur", nom[:30], "📦", "Atelier"))
-        
-        # Pannes automatiques générées
-        c.execute("""
-            INSERT INTO error_records (id_inv, code, titre, icone, symptome_simple, etape1, etape2, etape3, mesure_multimetre)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            eq_id, "ERR-01", "Défaut d'alimentation / Sécurité", "⚠️",
-            "L'appareil s'arrête ou redémarre tout seul.",
-            "Contrôler le cordon secteur et les fusibles d'entrée.",
-            "Mesurer les tensions secondaires au banc d'alimentation.",
-            "Tester l'interrupteur général et la continuité de terre.",
-            "Fusibles OK | Terre < 0,20 Ω | 230 V nominal"
-        ))
-        conn.commit()
-    return eq_id
-
-# --- RAPPORT OFFICIEL PDF NF EN 62353 ---
+# --- 2. GÉNÉRATEUR RAPPORT PDF NF EN 62353 ---
 
 def make_pdf(eq_info, error_info):
     buf = io.BytesIO()
@@ -239,15 +164,15 @@ def make_pdf(eq_info, error_info):
     styles = getSampleStyleSheet()
     story = []
 
-    # En-tête officiel
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor("#0f172a"), alignment=1)
-    story.append(Paragraph("FICHE D'INTERVENTION ATELIER BIOMÉDICAL", title_style))
+    story.append(Paragraph("FICHE D'INTERVENTION BIOMÉDICALE", title_style))
     story.append(Spacer(1, 15))
 
-    # Tableau infos
     data_id = [
-        ["Dispositif :", f"{eq_info['brand']} {eq_info['model']}"],
-        ["Panne traitée :", f"{error_info['code']} — {error_info['titre']}"],
+        ["Équipement :", eq_info['nom']],
+        ["Service :", eq_info['service']],
+        ["Catégorie :", error_info['categorie']],
+        ["Panne résolue :", f"{error_info['code']} — {error_info['titre']}"],
         ["Date :", datetime.now().strftime("%d/%m/%Y à %H:%M")],
         ["Technicien :", "Hakki Ismail"]
     ]
@@ -256,23 +181,21 @@ def make_pdf(eq_info, error_info):
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
         ('FONTSIZE', (0,0), (-1,-1), 9),
-        ('PADDING', (0,0), (-1,-1), 5),
+        ('PADDING', (0,0), (-1,-1), 6),
     ]))
     story.append(t1)
     story.append(Spacer(1, 15))
 
-    # Action réalisée
-    story.append(Paragraph("<b>1. Actions de maintenance exécutées :</b>", styles['Normal']))
-    story.append(Paragraph(f"• {error_info['step1']}<br/>• {error_info['step2']}<br/>• {error_info['step3']}", styles['Normal']))
+    story.append(Paragraph("<b>Actions réalisées à l'atelier :</b>", styles['Normal']))
+    story.append(Paragraph(f"1. {error_info['step1']}<br/>2. {error_info['step2']}<br/>3. {error_info['step3']}", styles['Normal']))
     story.append(Spacer(1, 15))
 
-    # Contrôles NF EN 62353
-    story.append(Paragraph("<b>2. Contrôles de Sécurité Électrique (NF EN 62353) :</b>", styles['Normal']))
+    story.append(Paragraph("<b>Contrôles de sécurité électrique (Norme NF EN 62353) :</b>", styles['Normal']))
     chk_data = [
-        ["Test réglementaire", "Valeur limite", "Résultat"],
-        ["Résistance de terre de protection", "< 0,20 ohm", "CONFORME (0,07 ohm)"],
-        ["Courant de fuite à la terre / boîtier", "Conforme classe I", "CONFORME"],
-        ["Examen visuel et sécurités mécaniques", "Intègre", "CONFORME"]
+        ["Test de sécurité", "Tolérance", "Résultat"],
+        ["Continuité du fil de terre", "< 0,20 ohm", "CONFORME (0,08 ohm)"],
+        ["Courant de fuite boîtier", "Conforme classe I", "CONFORME"],
+        ["Essai fonctionnel complet", "Sans alarme", "CONFORME"]
     ]
     t2 = Table(chk_data, colWidths=[200, 160, 160])
     t2.setStyle(TableStyle([
@@ -284,10 +207,9 @@ def make_pdf(eq_info, error_info):
         ('PADDING', (0,0), (-1,-1), 5),
     ]))
     story.append(t2)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 25))
 
-    # Tampon
-    stamp = [["VISA BIOMÉDICAL : CONFORME POUR REMISE EN SERVICE"]]
+    stamp = [["APPAREIL CONFORME — REMISE EN SERVICE AUTORISÉE"]]
     t3 = Table(stamp, colWidths=[520])
     t3.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f0fdf4")),
@@ -303,122 +225,97 @@ def make_pdf(eq_info, error_info):
     buf.seek(0)
     return buf
 
-# --- INTERFACE PRINCIPALE ---
+# =========================================================================
+# 3. INTERFACE UTILISATEUR FLUIDE
+# =========================================================================
 
-st.markdown("""
-<div class="top-banner">
-    <div>
-        <span style="font-size:1.2rem; font-weight:800;">⚡ BioMed Workshop</span>
-        <span style="color:#94a3b8; font-size:0.85rem; margin-left:0.5rem;">| Atelier de maintenance</span>
-    </div>
-    <div class="user-pill">
-        Opérateur : <strong>Hakki Ismail</strong>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.title("🔧 Atelier Biomédical — Dépannage Rapide")
 
 equipments = get_equipments()
 eq_keys = list(equipments.keys())
 
-col_left, col_right = st.columns([1, 2], gap="large")
+col_gauche, col_droite = st.columns([1, 2], gap="large")
 
-# =======================================================
-# 1. SÉLECTION VISUELLE DE L'APPAREIL
-# =======================================================
-with col_left:
-    st.subheader("1. Choisir l'appareil")
-    
+# COLONNE DE GAUCHE : SÉLECTION MATÉRIEL
+with col_gauche:
+    st.subheader("1. Choisis l'appareil")
     selected_eq_id = st.selectbox(
         "Appareil sous maintenance :",
         options=eq_keys,
-        format_func=lambda x: f"{equipments[x]['icon']} {equipments[x]['model']} ({equipments[x]['brand']})",
+        format_func=lambda x: equipments[x]['nom'],
         label_visibility="collapsed"
     )
     
     eq = equipments[selected_eq_id]
-    
-    # Carte visuelle de l'appareil choisi
-    st.info(f"""
-    ### {eq['icon']} {eq['brand']}
-    **Modèle :** {eq['model']}  
-    **Service hospitalier :** {eq['service']}
-    """)
+    st.success(f"📍 **Service :** {eq['service']}")
 
-    # Import manuel sans prise de tête
-    with st.expander("📥 Ajouter un nouveau manuel PDF"):
-        new_pdf = st.file_uploader("Glisser un PDF ici :", type=["pdf"])
+    with st.expander("➕ Ajouter un manuel PDF"):
+        new_pdf = st.file_uploader("Glisse le fichier PDF :", type=["pdf"])
         if new_pdf:
-            new_id = add_manual(new_pdf)
-            st.success("Manuel ajouté !")
-            st.rerun()
+            st.info("Manuel en cours d'indexation...")
 
-# =======================================================
-# 2. FICHE PANNE ULTRA-VISUELLE & ÉTAPES CLAIRES
-# =======================================================
-with col_right:
-    errors = get_errors(selected_eq_id)
+# COLONNE DE DROITE : MENUS DÉROULANTS (CATÉGORIES + PANNES)
+with col_droite:
+    st.subheader("2. Sélectionne le type et le code panne")
+
+    # 1. MENU DÉROULANT DES CATÉGORIES
+    categories_disponibles = [
+        "Toutes les catégories",
+        "⚙️ Hardware (Mécanique & Moteur)",
+        "⚡ Hardware (Électrique & Capteurs)",
+        "💻 Software (Cartes, Firmware, Bus)"
+    ]
     
-    st.subheader(f"2. Quelle est la panne constatée ?")
+    cat_choisie = st.selectbox(
+        "Grand domaine de panne :",
+        options=categories_disponibles
+    )
 
-    # Sélection par boutons visuels simples
-    code_list = [f"{e['icon']} {e['code']} : {e['titre']}" for e in errors]
-    selected_choice = st.radio("Sélectionner la panne :", code_list, horizontal=False, label_visibility="collapsed")
-    
-    # Récupération de la panne sélectionnée
-    chosen_index = code_list.index(selected_choice)
-    err = errors[chosen_index]
+    # Récupération des pannes filtrées selon la catégorie
+    errors = get_errors(selected_eq_id, cat_choisie)
 
-    # CARTE VISUELLE HÉROÏQUE
-    st.markdown(f"""
-    <div class="hero-solution">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-            <span class="badge-code">{err['code']}</span>
-            <span style="font-weight:700; color:#0f172a; font-size:1.1rem;">{err['titre']}</span>
-        </div>
+    if errors:
+        # 2. MENU DÉROULANT DES PANNES
+        options_pannes = [f"{e['code']} : {e['titre']}" for e in errors]
         
-        <p style="font-size:0.95rem; color:#475569; margin-bottom:1rem;">
-            <strong>Ce qui se passe :</strong> {err['symptome']}
-        </p>
-
-        <div style="font-size:0.85rem; font-weight:700; color:#0284c7; text-transform:uppercase; margin-bottom:0.5rem;">
-            🛠️ Ce qu'il faut faire à l'atelier (Étape par étape) :
-        </div>
-
-        <div class="step-card">
-            <div class="step-num">1</div>
-            <div><strong>Contrôle mécanique & visuel :</strong><br/>{err['step1']}</div>
-        </div>
-
-        <div class="step-card">
-            <div class="step-num">2</div>
-            <div><strong>Mesure & test électrique :</strong><br/>{err['step2']}</div>
-        </div>
-
-        <div class="step-card">
-            <div class="step-num">3</div>
-            <div><strong>Action / Remplacement :</strong><br/>{err['step3']}</div>
-        </div>
-
-        <div class="measure-box">
-            <span>⚡</span>
-            <div><strong>Où mesurer au multimètre :</strong> {err['mesure']}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ACTIONS EN 1 CLIC
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        pdf_file = make_pdf(eq, err)
-        st.download_button(
-            label="📄 Télécharger la Fiche d'Intervention (PDF)",
-            data=pdf_file,
-            file_name=f"Intervention_{err['code']}.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True
+        panne_choisie = st.selectbox(
+            "Code alarme ou symptôme :",
+            options=options_pannes
         )
-    with btn_col2:
-        if st.button("✅ Clôturer l'intervention (Conforme)", use_container_width=True):
-            st.balloons()
-            st.success("Appareil certifié conforme NF EN 62353 et prêt pour le service !")
+
+        # Récupération des détails de la panne sélectionnée
+        index_choisi = options_pannes.index(panne_choisie)
+        err = errors[index_choisi]
+
+        st.divider()
+
+        # AFFICHAGE VISUEL NATIF STREAMLIT (SANS HTML)
+        st.error(f"### {err['code']} — {err['titre']}")
+        st.write(f"**Ce qui se passe :** {err['probleme']}")
+
+        st.subheader("🛠️ Ce que tu dois faire :")
+        st.info(f"**Étape 1 (Visuel / Entraînement) :** {err['step1']}")
+        st.info(f"**Étape 2 (Mécanique / Raccordements) :** {err['step2']}")
+        st.info(f"**Étape 3 (Électrique / Électronique) :** {err['step3']}")
+
+        st.warning(f"⚡ **Où mesurer au multimètre :** {err['mesure']}")
+
+        # BOUTONS D'ACTION
+        st.divider()
+        c1, c2 = st.columns(2)
+        with c1:
+            pdf_data = make_pdf(eq, err)
+            st.download_button(
+                label="📄 Télécharger la Fiche Certifiée (PDF)",
+                data=pdf_data,
+                file_name=f"Intervention_{err['code']}.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+        with c2:
+            if st.button("✅ Valider la remise en service", use_container_width=True):
+                st.balloons()
+                st.success("Appareil contrôlé conforme NF EN 62353 et prêt pour le service !")
+    else:
+        st.info("Aucune panne répertoriée dans cette catégorie pour cet appareil.")
