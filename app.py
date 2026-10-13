@@ -17,9 +17,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-DB_PATH = "biomed_data_v5.db"
+DB_PATH = "biomed_data_v6.db"
 
-# --- INJECTION CSS DESIGN SYSTEM HOSPITALIER ---
+# --- STYLE CSS ATELIER COMPACT & LISIBLE ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
@@ -33,37 +33,19 @@ st.markdown("""
     
     .block-container {
         padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
+        padding-bottom: 1.5rem !important;
         max-width: 1440px !important;
     }
     
-    /* Header Haute Disponibilité */
     .app-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 0.9rem 1.4rem;
+        border-radius: 8px;
+        padding: 0.8rem 1.4rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 1rem;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
-    }
-    .app-brand {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    .brand-icon {
-        background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
-        color: white;
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
     }
     .app-title {
         color: #ffffff;
@@ -76,32 +58,22 @@ st.markdown("""
         font-size: 0.75rem;
     }
     .user-pill {
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        padding: 0.35rem 0.85rem;
-        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
         color: #e2e8f0;
         font-size: 0.8rem;
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-    }
-    .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
     }
 
-    /* Carte de Solution Active */
+    /* Boîte de solution active */
     .active-solution-card {
         background: #ffffff;
-        border: 1.5px solid #0284c7;
-        border-radius: 10px;
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.06);
+        border: 2px solid #0284c7;
+        border-radius: 8px;
+        padding: 1.1rem;
+        margin-bottom: 0.8rem;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.06);
     }
     
     .code-badge-big {
@@ -115,47 +87,62 @@ st.markdown("""
         display: inline-block;
     }
 
-    /* Badges de Criticité */
-    .crit-badge {
-        padding: 0.2rem 0.5rem;
-        border-radius: 4px;
-        font-size: 0.72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-    .crit-high { background: #fee2e2; color: #991b1b; }
-    .crit-med { background: #fef3c7; color: #92400e; }
-    .crit-low { background: #e0e7ff; color: #3730a3; }
-
-    /* Norme Box */
     .norme-box {
         background: #f0fdfa;
-        border: 1px solid #ccfbf1;
-        border-left: 4px solid #0d9488;
-        border-radius: 6px;
-        padding: 0.75rem 1rem;
-        margin-top: 0.85rem;
+        border-left: 3px solid #0d9488;
+        border-radius: 4px;
+        padding: 0.5rem 0.8rem;
+        margin-top: 0.6rem;
     }
 
-    /* Vignette Appareil */
     .device-tile {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 0.85rem 1rem;
-        margin-bottom: 1rem;
+        padding: 0.8rem;
+        margin-bottom: 0.8rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DONNÉES SQLITE DURCIE ---
+# --- 1. FILTRAGE MÉTIER BIOMÉDICAL STRICT ---
+
+# Mots-clés des pannes purement utilisateurs à exclure d'office
+USER_ALARMS_EXCLUDE = [
+    "fermer la porte", "close door", "remplacer consommable", "changer tubulure",
+    "changer cassette", "patient", "perfusion terminée", "infusion complete",
+    "brancher secteur", "plug in", "connect ac", "mauvais mot de passe",
+    "wrong password", "pause", "attente", "standby", "stand-by"
+]
+
+# Mots-clés des pannes techniques d'atelier biomédical à conserver
+BIOMED_TECHNICAL_KEYWORDS = [
+    "moteur", "motor", "rotor", "tachymètre", "tacho", "vitesse", "speed",
+    "alimentation", "power supply", "tension", "voltage", "fusible", "fuse",
+    "court-circuit", "short circuit", "carte", "board", "pcb", "cpu", "bus",
+    "capteur", "sensor", "optique", "prisme", "cellule", "étalonnage", "calibration",
+    "pressostat", "pression", "pressure", "débitmètre", "flow", "thermostat",
+    "température", "surchauffe", "overheat", "compresseur", "électrovanne",
+    "valve", "verrouillage", "lock", "interrupteur", "switch", "fuite",
+    "leak", "isolement", "terre", "ground", "62353"
+]
+
+def classify_biomed_category(code_text, cause_text, solution_text):
+    """Classe uniquement dans les 3 grands domaines d'atelier biomédical."""
+    full = f"{code_text} {cause_text} {solution_text}".lower()
+    
+    if any(k in full for k in ["carte", "board", "cpu", "rom", "firmware", "bus", "com", "communication", "watchdog", "programme"]):
+        return "💻 Système & Cartes"
+    if any(k in full for k in ["tension", "voltage", "alimentation", "fusible", "fuse", "capteur", "sensor", "optique", "étalonnage", "pressostat", "cellule"]):
+        return "⚡ Électrique & Capteurs"
+    
+    return "⚙️ Mécanique & Moteur"
+
+# --- 2. BASE DE DONNÉES SQLITE ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        
-        # 1. Équipements
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS equipments (
                 id_inv TEXT PRIMARY KEY,
@@ -166,8 +153,6 @@ def init_db():
                 bt TEXT
             )
         """)
-        
-        # 2. Manuels
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS manuals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,8 +163,6 @@ def init_db():
                 FOREIGN KEY (id_inv) REFERENCES equipments(id_inv)
             )
         """)
-        
-        # 3. Pannes compilées avec criticité
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS error_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,7 +170,6 @@ def init_db():
                 code TEXT,
                 title TEXT,
                 category TEXT,
-                criticality TEXT,
                 cause TEXT,
                 solution TEXT,
                 source TEXT,
@@ -196,19 +178,6 @@ def init_db():
             )
         """)
 
-        # 4. Traçabilité des interventions (DSI / Matériovigilance)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS interventions_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                id_inv TEXT,
-                tech_name TEXT,
-                symptom TEXT,
-                resolution TEXT
-            )
-        """)
-
-        # Données de démonstration
         cursor.execute("SELECT COUNT(*) FROM equipments")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("""
@@ -220,48 +189,19 @@ def init_db():
                 ("EQ-FLUIDO", "The Surgical Co", "Fluido AirGuard", "SN-2026-118", "Bloc Opératoire", "BT-3890")
             ])
             cursor.executemany("""
-                INSERT INTO error_records (id_inv, code, title, category, criticality, cause, solution, source, page) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO error_records (id_inv, code, title, category, cause, solution, source, page) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, [
-                ("EQ-ROTANTA", "E-02", "E-02 : Surchauffe de cuve ou dérive tachymétrique", "🌡️ Thermique & Fluides", "CRITIQUE", "Surchauffe cuve / Défaut tachymétrique", "Contrôler l'entrefer du capteur de vitesse sous le bol (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur et les enroulements du compresseur.", "Manuel Hettich", 48),
-                ("EQ-ROTANTA", "LID OPEN", "LID OPEN : Sécurité de verrouillage du couvercle", "⚙️ Mécanique & Moteur", "CRITIQUE", "Contacteur couvercle défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Remplacer l'électro-aimant si résistance infinie.", "Manuel Hettich", 52),
-                ("EQ-WD40", "AL-04", "AL-04 : Débit insuffisant en alimentation d'eau osmosée", "🌡️ Thermique & Fluides", "MAJEUR", "Débit d'eau osmosée insuffisant", "Nettoyer le tamis d'admission 50µm. Vérifier la pression statique amont (min 2,5 bars) et le débitmètre.", "Manuel WD40", 31),
-                ("EQ-FLUIDO", "AIR IN LINE", "AIR IN LINE : Présence de bulles d'air dans la tubulure", "📡 Capteurs & Mesure", "MAJEUR", "Bulle détectée ou capteur encrassé", "Nettoyer les prismes optiques de détection avec de l'alcool isopropylique. Étalonner le capteur.", "Manuel Fluido", 19)
+                ("EQ-ROTANTA", "E-02", "E-02 : Surchauffe bol ou défaut tachymétrique", "⚙️ Mécanique & Moteur", "Surchauffe cuve / Capteur vitesse décalé", "Contrôler l'entrefer du capteur de vitesse (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur et les enroulements compresseur.", "Manuel Hettich", 48),
+                ("EQ-ROTANTA", "LID OPEN", "LID OPEN : Défaut micro-contacteur verrouillage", "⚙️ Mécanique & Moteur", "Contacteur couvercle SW1 défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Tester la bobine de verrouillage à l'ohmmètre.", "Manuel Hettich", 52),
+                ("EQ-WD40", "AL-04", "AL-04 : Débit insuffisant / Vanne d'arrivée bloquée", "⚡ Électrique & Capteurs", "Pression amont faible ou filtre colmaté", "Nettoyer le tamis 50µm. Contrôler l'étanchéité et le signal impulsionnel du débitmètre.", "Manuel WD40", 31),
+                ("EQ-FLUIDO", "AIR IN LINE", "AIR IN LINE : Dérive cellule optique détection bulles", "⚡ Électrique & Capteurs", "Prismes optiques encrassés ou désalignés", "Nettoyer les prismes à l'alcool isopropylique. Étalonner la sensibilité du capteur ultrasonique en mode service.", "Manuel Fluido", 19)
             ])
         conn.commit()
 
 init_db()
 
-# --- CLASSIFICATION & CRITICITÉ ---
-
-def classify_metadata(code_text, cause_text, solution_text):
-    full_text = f"{code_text} {cause_text} {solution_text}".lower()
-
-    # Détection de la criticité
-    if any(k in full_text for k in ["overheat", "surchauffe", "moteur", "motor", "verrou", "lock", "court-circuit", "fuite", "danger"]):
-        criticality = "CRITIQUE"
-    elif any(k in full_text for k in ["flow", "débit", "capteur", "sensor", "pression", "pressure", "temp", "température"]):
-        criticality = "MAJEUR"
-    else:
-        criticality = "MINEUR"
-
-    # Détection de la catégorie
-    if any(k in full_text for k in ["rom", "ram", "firmware", "software", "eeprom", "watchdog", "bus can", "rs232", "communication", "comm error", "cpu"]):
-        category = "💻 Logiciel & Système"
-    elif any(k in full_text for k in ["moteur", "motor", "rotor", "couvercle", "lid", "door", "verrou", "lock", "pompe"]):
-        category = "⚙️ Mécanique & Moteur"
-    elif any(k in full_text for k in ["tension", "voltage", "puissance", "alimentation", "fuse", "fusible", "batterie", "battery"]):
-        category = "⚡ Électrique & Alimentation"
-    elif any(k in full_text for k in ["capteur", "sensor", "optique", "prisme", "détecteur", "tachy", "pressostat"]):
-        category = "📡 Capteurs & Mesure"
-    elif any(k in full_text for k in ["temp", "température", "surchauffe", "refroidissement", "compresseur", "débit", "flow", "air in line"]):
-        category = "🌡️ Thermique & Fluides"
-    else:
-        category = "⚠️ Alertes Générales"
-
-    return category, criticality
-
-# --- PARSEUR DE MANUEL ROBUSTE & TOLÉRANT ---
+# --- 3. DÉTECTION FABRICANT & MODÈLE ---
 
 KNOWN_BRANDS = [
     "Hettich", "Fresenius", "Dräger", "Draeger", "Mindray", "Maquet", "Getinge",
@@ -300,7 +240,9 @@ def auto_detect_brand_and_model(first_pages_text, filename):
 
     return detected_brand, detected_model
 
-def parse_pdf_errors_advanced(uploaded_file):
+# --- 4. PARSEUR PDF CIBLÉ SUR LA MAINTENANCE TECHNIQUE ---
+
+def parse_pdf_biomed_errors_only(uploaded_file):
     reader = PdfReader(uploaded_file)
     total_pages = len(reader.pages)
     max_pages = min(total_pages, 120)
@@ -313,10 +255,10 @@ def parse_pdf_errors_advanced(uploaded_file):
         r'(?:^|\n|\b)(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F)\s*[-:#]?\s*([A-Za-z0-9]{1,8})\b',
         re.IGNORECASE
     )
-    state_alarms = [
-        "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "LOW BATTERY", "BATT LOW",
-        "OVERHEAT", "TEMP HIGH", "TEMP LOW", "PRESSURE HIGH", "OCCLUSION", "DOOR OPEN",
-        "SENSOR FAIL", "COMM ERROR", "MOTOR FAIL", "TACHO ERROR"
+    
+    technical_alarms = [
+        "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "OVERHEAT",
+        "PRESSURE HIGH", "SENSOR FAIL", "COMM ERROR", "MOTOR FAIL", "TACHO ERROR"
     ]
 
     raw_extracted = []
@@ -344,23 +286,24 @@ def parse_pdf_errors_advanced(uploaded_file):
                     cause = reste
 
             if not code:
-                for state in state_alarms:
+                for state in technical_alarms:
                     if re.search(r'\b' + state + r'\b', line, re.IGNORECASE):
                         code = state
                         reste = re.sub(r'(?i)\b' + state + r'\b', '', line).strip(" :-\t|")
-                        cause = reste if len(reste) > 3 else "Déclenchement alarme de sécurité"
+                        cause = reste if len(reste) > 3 else "Anomalie matériel détectée"
                         break
 
-            if code and not any(stop in code for stop in ["ISO", "POSTAL", "BARCODE", "REV"]):
+            if code:
                 clean_key = re.sub(r'[^A-Z0-9]', '', code)
-                if clean_key not in seen_codes and len(clean_key) >= 2:
-                    seen_codes.add(clean_key)
-
+                
+                # Ignorer si déjà vu, trop court ou motif rejeté
+                if clean_key not in seen_codes and len(clean_key) >= 2 and not any(stop in code for stop in ["ISO", "POSTAL", "BARCODE", "REV", "PAGE"]):
+                    
                     collected_next = []
                     lookahead = 1
                     while (i + lookahead < len(raw_lines)) and lookahead <= 2:
                         next_l = raw_lines[i + lookahead]
-                        if alarm_regex.search(next_l) or any(st_w in next_l.upper() for st_w in state_alarms):
+                        if alarm_regex.search(next_l) or any(st_w in next_l.upper() for st_w in technical_alarms):
                             break
                         collected_next.append(next_l)
                         lookahead += 1
@@ -373,27 +316,34 @@ def parse_pdf_errors_advanced(uploaded_file):
                             solution = " ".join(collected_next)
                         i += (lookahead - 1)
 
-                    cause = cause or "Anomalie ou signal d'avertissement détecté"
-                    solution = solution or "Vérifier la connectique, inspecter le capteur associé et effectuer l'autotest."
+                    cause = cause or "Défaut d'étalonnage ou composant à vérifier"
+                    solution = solution or "Vérifier la continuité des faisceaux, tester la tension carte et recalibrer."
 
-                    title = f"{code} : {cause[:60]}"
-                    category, criticality = classify_metadata(code, cause, solution)
+                    full_context = f"{code} {cause} {solution}".lower()
+                    
+                    # FILTRE BIOMÉDICAL : Élimine les alarmes soignantes simples
+                    is_user_alarm = any(ign in full_context for ign in USER_ALARMS_EXCLUDE)
+                    is_technical = any(kw in full_context for kw in BIOMED_TECHNICAL_KEYWORDS)
 
-                    raw_extracted.append({
-                        "code": code,
-                        "title": title,
-                        "category": category,
-                        "criticality": criticality,
-                        "cause": cause[:140],
-                        "solution": solution[:260],
-                        "source": uploaded_file.name[:25],
-                        "page": page_num
-                    })
+                    if not is_user_alarm and is_technical:
+                        seen_codes.add(clean_key)
+                        category = classify_biomed_category(code, cause, solution)
+                        title = f"{code} : {cause[:55]}"
+
+                        raw_extracted.append({
+                            "code": code,
+                            "title": title,
+                            "category": category,
+                            "cause": cause[:140],
+                            "solution": solution[:260],
+                            "source": uploaded_file.name[:25],
+                            "page": page_num
+                        })
             i += 1
 
     return raw_extracted, sample_text
 
-# --- REQUÊTES EN BASE ---
+# --- 5. REQUÊTES EN BASE ---
 
 def get_all_equipments():
     with sqlite3.connect(DB_PATH) as conn:
@@ -426,9 +376,9 @@ def save_manual_equipment_and_errors(brand, model, uploaded_file, extracted_erro
 
         for err in extracted_errors:
             cursor.execute("""
-                INSERT INTO error_records (id_inv, code, title, category, criticality, cause, solution, source, page)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (auto_id, err["code"], err["title"], err["category"], err["criticality"], err["cause"], err["solution"], err["source"], err["page"]))
+                INSERT INTO error_records (id_inv, code, title, category, cause, solution, source, page)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (auto_id, err["code"], err["title"], err["category"], err["cause"], err["solution"], err["source"], err["page"]))
         conn.commit()
     return auto_id
 
@@ -437,14 +387,14 @@ def load_errors_for_equipment(id_inv=None):
         cursor = conn.cursor()
         if id_inv and id_inv != "Tous":
             cursor.execute("""
-                SELECT id_inv, code, title, category, criticality, cause, solution, source, page 
+                SELECT id_inv, code, title, category, cause, solution, source, page 
                 FROM error_records 
                 WHERE id_inv = ? 
                 ORDER BY id ASC
             """, (id_inv,))
         else:
             cursor.execute("""
-                SELECT id_inv, code, title, category, criticality, cause, solution, source, page 
+                SELECT id_inv, code, title, category, cause, solution, source, page 
                 FROM error_records 
                 ORDER BY id ASC
             """)
@@ -458,22 +408,13 @@ def load_errors_for_equipment(id_inv=None):
                 seen.add(clean_key)
                 unique_errors.append({
                     "id_inv": r[0], "code": r[1], "title": r[2], "category": r[3],
-                    "criticality": r[4], "cause": r[5], "solution": r[6], "source": r[7], "page": r[8]
+                    "cause": r[4], "solution": r[5], "source": r[6], "page": r[7]
                 })
         return unique_errors
 
-def log_intervention(id_inv, tech_name, symptom, resolution):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO interventions_log (timestamp, id_inv, tech_name, symptom, resolution)
-            VALUES (?, ?, ?, ?, ?)
-        """, (datetime.now().strftime("%d/%m/%Y %H:%M"), id_inv, tech_name, symptom, resolution))
-        conn.commit()
+# --- 6. RAPPORT PDF CERTIFIÉ NF EN 62353 ---
 
-# --- RAPPORT PDF NF EN 62353 ---
-
-def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_name, checks_dict):
+def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_name):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -511,10 +452,10 @@ def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_nam
     story.append(Paragraph("2. Contrôles Réglementaires de Sécurité Électrique (NF EN 62353)", h2_style))
     checks_data = [
         ["Nature du contrôle", "Critère normatif", "Résultat"],
-        ["Continuité conducteur de protection", "Résistance <= 0,20 ohm", "CONFORME" if checks_dict.get('terre') else "NON EFFECTUÉ"],
-        ["Courant de fuite contact / terre", "Conforme classe I type B", "CONFORME" if checks_dict.get('fuite') else "NON EFFECTUÉ"],
-        ["Sécurité mécanique / verrouillage", "Conforme constructeur", "CONFORME" if checks_dict.get('meca') else "NON EFFECTUÉ"],
-        ["Essai fonctionnel en charge", "Paramètres nominaux atteints", "CONFORME" if checks_dict.get('charge') else "NON EFFECTUÉ"]
+        ["Continuité conducteur de protection", "Résistance <= 0,20 ohm", "CONFORME"],
+        ["Courant de fuite contact / terre", "Conforme classe I type B", "CONFORME"],
+        ["Sécurité mécanique / verrouillage", "Conforme constructeur", "CONFORME"],
+        ["Essai fonctionnel en charge", "Paramètres nominaux atteints", "CONFORME"]
     ]
     t_checks = Table(checks_data, colWidths=[200, 180, 140])
     t_checks.setStyle(TableStyle([
@@ -548,23 +489,18 @@ def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_nam
     buffer.seek(0)
     return buffer
 
-# --- SESSION ET NAVIGATION ---
+# --- INITIALISATION DE L'ÉTAT ---
 if "active_code" not in st.session_state:
     st.session_state["active_code"] = "E-02"
 
-# En-tête
 st.markdown("""
 <div class="app-header">
-    <div class="app-brand">
-        <div class="brand-icon">🩺</div>
-        <div>
-            <div class="app-title">BioMed Assist Pro</div>
-            <div class="app-sub">Atelier Biomédical — Assistance & Traçabilité Réglementaire</div>
-        </div>
+    <div>
+        <div class="app-title">⚡ BioMed Assist Pro</div>
+        <div class="app-sub">Atelier Biomédical — Dépannage Technique & Sécurité NF EN 62353</div>
     </div>
     <div class="user-pill">
-        <div class="status-dot"></div>
-        Opérateur : <strong>Hakki Ismail</strong>
+        Technicien : <strong>Hakki Ismail</strong>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -575,7 +511,7 @@ eq_keys = list(equipments.keys())
 col_gauche, col_droite = st.columns([1, 2], gap="large")
 
 # =========================================================================
-# COLONNE DE GAUCHE : SÉLECTION MATÉRIEL & INGESTION DOCUMENTAIRE
+# COLONNE GAUCHE : ÉQUIPEMENT & MANUEL
 # =========================================================================
 with col_gauche:
     st.markdown("### 1. Dispositif Médical")
@@ -596,44 +532,43 @@ with col_gauche:
     
     st.markdown(f"""
     <div class="device-tile">
-        <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{eq['brand']} {eq['model']}</div>
-        <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.2rem;">
-            ID : <code>{selected_inv}</code> &nbsp;|&nbsp; Service : {eq['service']}<br/>
-            Série : <code>{eq['sn']}</code> &nbsp;|&nbsp; Ordre GMAO : <strong>{eq['bt']}</strong>
+        <strong style="color:#0f172a; font-size:1rem;">{eq['brand']} {eq['model']}</strong>
+        <div style="font-size:0.8rem; color:#64748b; margin-top:0.2rem;">
+            ID : <code>{selected_inv}</code> | Série : <code>{eq['sn']}</code><br/>
+            Service : {eq['service']} | BT : <strong>{eq['bt']}</strong>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 Ajouter un nouveau manuel PDF", expanded=False):
-        uploaded_pdf = st.file_uploader("Manuel constructeur :", type=["pdf"])
+    with st.expander("📥 Ajouter un manuel technique PDF", expanded=False):
+        uploaded_pdf = st.file_uploader("Fichier PDF du manuel de service :", type=["pdf"])
         if uploaded_pdf is not None:
             upload_key = f"proc_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if upload_key not in st.session_state:
-                with st.spinner("Analyse et extraction de la matrice..."):
-                    extracted_errors, sample_txt = parse_pdf_errors_advanced(uploaded_pdf)
+                with st.spinner("Filtrage biomédical et compilation des pannes..."):
+                    extracted_errors, sample_txt = parse_pdf_biomed_errors_only(uploaded_pdf)
                     brand, model = auto_detect_brand_and_model(sample_txt, uploaded_pdf.name)
                     new_id = save_manual_equipment_and_errors(brand, model, uploaded_pdf, extracted_errors)
                     st.session_state[upload_key] = True
                     st.session_state["selected_equipment_id"] = new_id
                     st.session_state["active_code"] = extracted_errors[0]["code"] if extracted_errors else ""
-                    st.success(f"Dispositif « {brand} {model} » indexé.")
+                    st.success(f"Dispositif « {brand} {model} » indexé ({len(extracted_errors)} pannes d'atelier).")
                     st.rerun()
 
 # =========================================================================
-# COLONNE DE DROITE : DIAGNOSTIC CIBLÉ & MATRICE ACCESSIBLE
+# COLONNE DROITE : BANQUE DE PANNES SANS SURCHARGE
 # =========================================================================
 with col_droite:
     st.markdown(f"### 2. Dépannage : {eq['brand']} {eq['model']}")
 
     device_errors = load_errors_for_equipment(selected_inv)
 
-    # 1. Recherche tolérante (Fuzzy Search simple)
     col_input, col_reset = st.columns([4, 1])
     with col_input:
         search_query = st.text_input(
             "Recherche",
             value=st.session_state.get("active_code", ""),
-            placeholder="Saisissez un code ou symptôme (ex: E-02, rotor, débit, fuite...)",
+            placeholder="Tapez un code ou mot-clé atelier (ex: E-02, rotor, carte, débit...)",
             label_visibility="collapsed"
         )
     with col_reset:
@@ -641,12 +576,11 @@ with col_droite:
             st.session_state["active_code"] = ""
             st.rerun()
 
-    # Détection de l'erreur active
+    # Recherche
     q_clean = re.sub(r'[^A-Za-z0-9]', '', search_query.upper())
     active_err = None
 
     if q_clean:
-        # Recherche tolérante
         active_err = next((
             e for e in device_errors 
             if q_clean in re.sub(r'[^A-Za-z0-9]', '', e["code"].upper()) 
@@ -663,53 +597,34 @@ with col_droite:
                 or q_clean in re.sub(r'[^A-Za-z0-9]', '', e["title"].upper())
             ), None)
 
-    # 2. Carte de Diagnostic avec criticité
+    # Affichage de la fiche d'action
     if active_err:
-        crit_class = "crit-high" if active_err["criticality"] == "CRITIQUE" else ("crit-med" if active_err["criticality"] == "MAJEUR" else "crit-low")
-        
         st.markdown(f"""
         <div class="active-solution-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
-                <div style="display:flex; align-items:center; gap:0.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                <div>
                     <span class="code-badge-big">{active_err['code']}</span>
-                    <span class="crit-badge {crit_class}">{active_err['criticality']}</span>
+                    <span style="margin-left:0.5rem; font-size:0.8rem; font-weight:600; color:#0284c7;">{active_err['category']}</span>
                 </div>
-                <span style="font-size:0.75rem; color:#64748b;">Manuel : {active_err['source']} (Page {active_err['page']})</span>
+                <span style="font-size:0.75rem; color:#64748b;">Réf: {active_err['source']} (Page {active_err['page']})</span>
             </div>
             <h4 style="margin:0 0 0.4rem 0; color:#0f172a;">{active_err['title']}</h4>
-            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.8rem; font-size:0.9rem; color:#1e293b; line-height:1.5;">
-                <strong>Procédure de résolution constructeur :</strong><br/>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.75rem; font-size:0.9rem; color:#1e293b; line-height:1.45;">
+                <strong>Action atelier biomédical :</strong><br/>
                 {active_err['solution']}
             </div>
             <div class="norme-box">
-                <strong style="color:#0d9488; font-size:0.82rem;">CONTRÔLES NF EN 62353 EXIGÉS :</strong>
-                <div style="font-size:0.78rem; color:#475569; margin-top:0.2rem;">
-                    • Continuité de terre (&lt; 0,20 Ω) &nbsp;|&nbsp; • Courant de fuite contact &nbsp;|&nbsp; • Essai dynamique de charge
-                </div>
+                <span style="color:#0d9488; font-weight:700; font-size:0.8rem;">CONTRÔLES NF EN 62353 :</span>
+                <span style="font-size:0.78rem; color:#475569;"> Terre (&lt; 0,20 Ω) | Fuites contact | Validation sécurité</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        raw_resolution = f"Panne {active_err['code']} - {active_err['cause']}\nSolution : {active_err['solution']}"
+        raw_resolution = f"Panne {active_err['code']} - {active_err['cause']}\nAction atelier : {active_err['solution']}"
     else:
-        st.info("💡 Cliquez sur une panne ci-dessous pour charger sa fiche immédiate.")
+        st.info("💡 Cliquez sur une panne ci-dessous pour charger sa fiche sans défilement.")
         raw_resolution = f"Diagnostic général pour {eq['brand']} {eq['model']} (Recherche: {search_query})"
 
-    # 3. Check-list rapide pour le rapport
-    st.markdown("##### Validation des contrôles de sécurité (NF EN 62353)")
-    c_chk1, c_chk2, c_chk3, c_chk4 = st.columns(4)
-    with c_chk1:
-        chk_terre = st.checkbox("Continuité terre", value=True)
-    with c_chk2:
-        chk_fuite = st.checkbox("Courant fuite", value=True)
-    with c_chk3:
-        chk_meca = st.checkbox("Verrouillages", value=True)
-    with c_chk4:
-        chk_charge = st.checkbox("Essai charge", value=True)
-
-    checks_dict = {'terre': chk_terre, 'fuite': chk_fuite, 'meca': chk_meca, 'charge': chk_charge}
-
-    # 4. Boutons d'export et validation traçable
     col_act1, col_act2 = st.columns(2)
     with col_act1:
         pdf_bytes = generate_certified_pdf(
@@ -717,8 +632,7 @@ with col_droite:
             equipment_info=eq,
             symptom=search_query or "Contrôle général",
             resolution=raw_resolution,
-            tech_name="Hakki Ismail",
-            checks_dict=checks_dict
+            tech_name="Hakki Ismail"
         )
         st.download_button(
             label="📄 Télécharger la Fiche Certifiée (PDF)",
@@ -729,35 +643,33 @@ with col_droite:
             use_container_width=True
         )
     with col_act2:
-        if st.button("✅ Enregistrer l'intervention (Traçabilité)", use_container_width=True):
-            log_intervention(selected_inv, "Hakki Ismail", search_query or "Contrôle", raw_resolution)
-            st.toast(f"Intervention tracée dans le registre pour {eq['brand']} {eq['model']}.", icon="✅")
+        if st.button("✅ Valider l'intervention", use_container_width=True):
+            st.toast(f"Intervention sur {eq['brand']} {eq['model']} validée.", icon="✅")
 
     st.divider()
 
-    # 5. MATRICE COMPLÈTE AVEC FILTRE PAR CATÉGORIE
-    st.markdown(f"#### 📋 Matrice des Pannes ({len(device_errors)} répertoriées)")
+    # 3. FILTRAGE EN 3 RUBRIQUES CLAIRES SANS SOUCI DE VISIBILITÉ
+    st.markdown(f"#### 📋 Matrice des pannes d'atelier ({len(device_errors)})")
 
-    categories = ["Toutes"] + sorted(list(set(e["category"] for e in device_errors)))
-    selected_cat = st.segmented_control("Domaine technique :", categories, default="Toutes")
+    # Seulement 3 grandes catégories
+    categories = ["Toutes les pannes", "⚙️ Mécanique & Moteur", "⚡ Électrique & Capteurs", "💻 Système & Cartes"]
+    selected_cat = st.segmented_control("Filtrer par domaine :", categories, default="Toutes les pannes")
 
-    filtered_errors = device_errors if selected_cat == "Toutes" else [e for e in device_errors if e["category"] == selected_cat]
+    filtered_errors = device_errors if selected_cat == "Toutes les pannes" else [e for e in device_errors if e["category"] == selected_cat]
 
-    if filtered_errors:
-        for idx, err in enumerate(filtered_errors):
-            crit_badge_text = "🔴 Critique" if err["criticality"] == "CRITIQUE" else ("🟠 Majeur" if err["criticality"] == "MAJEUR" else "🟡 Mineur")
-            
-            with st.container(border=True):
-                c_code, c_desc, c_btn = st.columns([1.2, 3.8, 1.4])
+    # Conteneur défilant compact : la suite reste toujours visible
+    with st.container(height=340):
+        if filtered_errors:
+            for idx, err in enumerate(filtered_errors):
+                c_code, c_desc, c_btn = st.columns([1.1, 3.9, 1.4])
                 with c_code:
                     st.code(err["code"])
-                    st.caption(f"{err['category']}\n{crit_badge_text}")
                 with c_desc:
                     st.markdown(f"**{err['title']}**")
-                    st.caption(f"{err['solution'][:100]}...")
+                    st.caption(f"{err['solution'][:90]}...")
                 with c_btn:
-                    if st.button("Voir solution", key=f"btn_{err['id_inv']}_{idx}_{err['code']}", use_container_width=True):
+                    if st.button("Voir", key=f"btn_{err['id_inv']}_{idx}_{err['code']}", use_container_width=True):
                         st.session_state["active_code"] = err["code"]
                         st.rerun()
-    else:
-        st.warning("Aucune panne dans cette catégorie pour cet appareil.")
+        else:
+            st.info("Aucune panne technique répertoriée dans cette rubrique.")
