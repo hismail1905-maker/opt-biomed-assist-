@@ -19,10 +19,10 @@ st.set_page_config(
 
 DB_PATH = "biomed_data_v3.db"
 
-# --- INJECTION CSS UI/UX MÉDICALE ---
+# --- STYLE CSS ÉPURÉ POUR USAGE ATELIER SIMPLE ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, sans-serif;
@@ -31,130 +31,88 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important;
     }
     
-    /* Espacements globaux */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 1.2rem !important;
         padding-bottom: 2rem !important;
         max-width: 1400px !important;
     }
     
-    /* En-tête applicatif */
+    /* En-tête simplifié */
     .app-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 1.25rem 1.75rem;
+        border-radius: 10px;
+        padding: 1rem 1.5rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-    }
-    .app-brand {
-        display: flex;
-        align-items: center;
-        gap: 0.85rem;
-    }
-    .brand-icon {
-        background: linear-gradient(135deg, #0284c7 0%, #0d9488 100%);
-        color: white;
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);
+        margin-bottom: 1.2rem;
     }
     .app-title {
         color: #ffffff;
-        font-size: 1.2rem;
+        font-size: 1.25rem;
         font-weight: 700;
-        letter-spacing: -0.02em;
         margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
     }
     .app-sub {
         color: #94a3b8;
         font-size: 0.8rem;
-        margin: 0;
     }
     .user-pill {
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        padding: 0.4rem 0.9rem;
-        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 0.35rem 0.85rem;
+        border-radius: 20px;
         color: #e2e8f0;
         font-size: 0.82rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
     }
 
-    /* Cartes de diagnostic */
-    .diag-card {
+    /* Carte de diagnostic sélectionnée */
+    .active-solution-card {
         background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
+        border: 2px solid #0284c7;
+        border-radius: 10px;
         padding: 1.25rem;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
     }
-    .diag-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid #f1f5f9;
-        padding-bottom: 0.75rem;
-        margin-bottom: 0.75rem;
-    }
-    .code-pill {
-        background: #fef3c7;
-        color: #92400e;
-        padding: 0.25rem 0.6rem;
+    
+    .code-badge-big {
+        background: #0284c7;
+        color: white;
+        padding: 0.3rem 0.75rem;
         border-radius: 6px;
         font-weight: 700;
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.85rem;
+        font-size: 1rem;
+        display: inline-block;
     }
-    .sec-tag {
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+
+    /* Boîte de conformité */
+    .norme-box {
+        background: #f0fdfa;
+        border: 1px solid #ccfbf1;
+        border-left: 4px solid #0d9488;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        margin-top: 0.85rem;
     }
-    
-    /* Tuiles d'équipement */
-    .device-tile {
-        background: #f8fafc;
+
+    /* Cartes pannes cliquables */
+    .error-item {
+        background: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-    }
-    .device-tile h4 {
-        margin: 0 0 0.35rem 0;
-        color: #0f172a;
-        font-size: 1.05rem;
-        font-weight: 700;
-    }
-    .device-tile p {
-        margin: 0;
-        color: #64748b;
-        font-size: 0.82rem;
+        border-radius: 8px;
+        padding: 0.85rem;
+        margin-bottom: 0.6rem;
+        transition: all 0.15s ease-in-out;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DONNÉES SQLITE ---
+# --- BASE DE DONNÉES ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -214,8 +172,6 @@ def init_db():
 
 init_db()
 
-# --- DÉTECTION CONSTRUCTEUR / MODÈLE ---
-
 KNOWN_BRANDS = [
     "Hettich", "Fresenius", "Dräger", "Draeger", "Mindray", "Maquet", "Getinge",
     "Philips", "GE Healthcare", "General Electric", "Olympus", "Karl Storz",
@@ -252,8 +208,6 @@ def auto_detect_brand_and_model(first_pages_text, filename):
         detected_model = model_match.group(1).strip().title() if model_match else f"Dispositif {datetime.now().strftime('%H%M')}"
 
     return detected_brand, detected_model
-
-# --- PARSEUR CODES PANNES MULTI-FORMATS ---
 
 def parse_pdf_errors_advanced(uploaded_file):
     extracted = []
@@ -336,8 +290,6 @@ def parse_pdf_errors_advanced(uploaded_file):
 
     return extracted, sample_text
 
-# --- REQUÊTES EN BASE ---
-
 def get_all_equipments():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -378,7 +330,7 @@ def save_manual_equipment_and_errors(brand, model, uploaded_file, extracted_erro
 def load_errors_for_equipment(id_inv=None):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        if id_inv and id_inv != "Tous les équipements":
+        if id_inv and id_inv != "Tous":
             cursor.execute("""
                 SELECT id_inv, code, cause, solution, source, page 
                 FROM error_records 
@@ -396,19 +348,6 @@ def load_errors_for_equipment(id_inv=None):
             {"id_inv": r[0], "code": r[1], "cause": r[2], "solution": r[3], "source": r[4], "page": r[5]}
             for r in rows
         ]
-
-def load_saved_manuals():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT m.filename, m.upload_date, LENGTH(m.pdf_blob), e.brand, e.model, m.id_inv 
-            FROM manuals m 
-            LEFT JOIN equipments e ON m.id_inv = e.id_inv 
-            ORDER BY m.id DESC
-        """)
-        return cursor.fetchall()
-
-# --- GÉNÉRATEUR DU RAPPORT CERTIFIÉ NF EN 62353 ---
 
 def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_name):
     buffer = io.BytesIO()
@@ -485,235 +424,169 @@ def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_nam
     buffer.seek(0)
     return buffer
 
-# --- HEADER UX CLEANROOM ---
+# --- INITIALISATION DE L'ÉTAT DE SESSION ---
+if "active_code" not in st.session_state:
+    st.session_state["active_code"] = "E-02"
+
+# --- EN-TÊTE FIXE ---
 st.markdown("""
 <div class="app-header">
-    <div class="app-brand">
-        <div class="brand-icon">⚡</div>
-        <div>
-            <div class="app-title">BioMed Assist Pro</div>
-            <div class="app-sub">Atelier Central de Maintenance Biomédicale</div>
-        </div>
+    <div>
+        <div class="app-title">⚡ BioMed Assist Pro</div>
+        <div class="app-sub">Atelier Biomédical — Dépannage rapide & Matrice constructeur</div>
     </div>
     <div class="user-pill">
-        <div class="status-dot"></div>
-        Opérateur : <strong>Hakki Ismail</strong>
+        Technicien : <strong>Hakki Ismail</strong>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 equipments = get_all_equipments()
-all_errors = load_errors_for_equipment(None)
-saved_manuals = load_saved_manuals()
+eq_keys = list(equipments.keys())
 
-# --- KPI METRICS BAR ---
-kpi1, kpi2, kpi3 = st.columns(3)
-with kpi1:
-    st.metric(label="Appareils référencés", value=len(equipments), delta="Opérationnels")
-with kpi2:
-    st.metric(label="Codes pannes indexés", value=len(all_errors), delta="Prêts pour recherche")
-with kpi3:
-    st.metric(label="Manuels en base SQLite", value=len(saved_manuals), delta="Persistés localement")
+# =========================================================================
+# INTERFACE UNIFIÉE : SÉLECTION + RECHERCHE + SOLUTION + LISTE DES PANNES
+# =========================================================================
 
-st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+col_gauche, col_droite = st.columns([1, 2], gap="medium")
 
-# --- NAVIGATION TABS ---
-tab_diag, tab_matrix, tab_db = st.tabs([
-    "🩺 Banc de Diagnostic", 
-    f"📚 Matrice des Pannes ({len(all_errors)})",
-    f"💾 Bibliothèque Manuels ({len(saved_manuals)})"
-])
+# --- COLONNE DE GAUCHE : CHOIX DE L'APPAREIL & AJOUT MANUEL ---
+with col_gauche:
+    st.markdown("### 1. Dispositif Médical")
+    
+    default_idx = 0
+    if "selected_equipment_id" in st.session_state and st.session_state["selected_equipment_id"] in eq_keys:
+        default_idx = eq_keys.index(st.session_state["selected_equipment_id"])
 
-# ==========================================
-# ONGLET 1 : BANC DE DIAGNOSTIC
-# ==========================================
-with tab_diag:
-    col_setup, col_workstation = st.columns([1, 2], gap="large")
+    selected_inv = st.selectbox(
+        "Sélectionnez l'appareil sous intervention :",
+        options=eq_keys,
+        index=default_idx,
+        format_func=lambda x: f"{equipments[x]['brand']} — {equipments[x]['model']}",
+        label_visibility="collapsed"
+    )
+    
+    eq = equipments[selected_inv]
+    
+    # Récapitulatif simple et lisible
+    st.success(f"**{eq['brand']} {eq['model']}**\n\nID : `{selected_inv}` | Service : {eq['service']}")
 
-    with col_setup:
-        st.markdown("#### 1. Sélection de l'appareil")
-        
-        eq_keys = list(equipments.keys())
-        default_index = 0
-        if "selected_equipment_id" in st.session_state and st.session_state["selected_equipment_id"] in eq_keys:
-            default_index = eq_keys.index(st.session_state["selected_equipment_id"])
-
-        selected_inv = st.selectbox(
-            "Dispositif sous intervention",
-            options=eq_keys,
-            index=default_index,
-            format_func=lambda x: f"{equipments[x]['brand']} — {equipments[x]['model']}",
-            label_visibility="collapsed"
-        )
-        
-        eq = equipments[selected_inv]
-        
-        st.markdown(f"""
-        <div class="device-tile">
-            <h4>{eq['brand']} {eq['model']}</h4>
-            <p><strong>Identifiant :</strong> <code>{selected_inv}</code></p>
-            <p><strong>Affectation :</strong> {eq['service']} | <strong>Série :</strong> {eq['sn']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("#### 2. Dépôt de manuel (Auto-index)")
-        uploaded_pdf = st.file_uploader(
-            "Glisser-déposer un nouveau PDF",
-            type=["pdf"],
-            key="pdf_drop_zone",
-            help="Détecte automatiquement la marque, le modèle et compile les pannes sans saisie manuelle."
-        )
-        
+    # Panneau d'ajout manuel
+    with st.expander("📥 Ajouter un nouveau manuel PDF", expanded=False):
+        uploaded_pdf = st.file_uploader("Déposer un fichier PDF :", type=["pdf"])
         if uploaded_pdf is not None:
             upload_key = f"proc_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if upload_key not in st.session_state:
-                with st.spinner("Indexation vectorielle et extraction des codes pannes..."):
+                with st.spinner("Analyse et extraction automatique..."):
                     extracted_errors, sample_txt = parse_pdf_errors_advanced(uploaded_pdf)
                     brand, model = auto_detect_brand_and_model(sample_txt, uploaded_pdf.name)
                     new_id = save_manual_equipment_and_errors(brand, model, uploaded_pdf, extracted_errors)
                     st.session_state[upload_key] = True
                     st.session_state["selected_equipment_id"] = new_id
-                    st.success(f"Dispositif « {brand} {model} » indexé avec succès ({len(extracted_errors)} pannes compilées).")
+                    st.session_state["active_code"] = extracted_errors[0]["code"] if extracted_errors else ""
                     st.rerun()
 
-    with col_workstation:
-        st.markdown(f"#### 3. Diagnostic & Procédure de Réparation")
-        
-        eq_errors = load_errors_for_equipment(selected_inv)
-        
-        query = st.text_input(
+# --- COLONNE DE DROITE : DIAGNOSTIC & MATRICE ACCESSIBLES ENSEMBLE ---
+with col_droite:
+    st.markdown(f"### 2. Dépannage : {eq['brand']} {eq['model']}")
+
+    # Pannes enregistrées pour cet appareil
+    device_errors = load_errors_for_equipment(selected_inv)
+
+    # 1. Champ de recherche rapide
+    col_input, col_reset = st.columns([4, 1])
+    with col_input:
+        search_query = st.text_input(
             "Recherche de panne",
-            value="E-02",
-            placeholder="Saisissez un code alarme ou un symptôme (ex: E-02, LID OPEN, NO FLOW...)",
+            value=st.session_state.get("active_code", ""),
+            placeholder="Tapez un code alarme ou un mot-clé (ex: E-02, couvercle, débit...)",
             label_visibility="collapsed"
         )
+    with col_reset:
+        if st.button("Effacer", use_container_width=True):
+            st.session_state["active_code"] = ""
+            st.rerun()
 
-        q_clean = query.upper().strip()
-        found = next((item for item in eq_errors if item["code"] in q_clean or item["cause"].upper() in q_clean), None)
-        
-        if not found:
-            found = next((item for item in all_errors if item["code"] in q_clean or item["cause"].upper() in q_clean), None)
+    # Détection de la solution active
+    q_clean = search_query.upper().strip()
+    active_err = None
 
-        # Affichage structuré du diagnostic UX
-        if found:
-            st.markdown(f"""
-            <div class="diag-card">
-                <div class="diag-header">
-                    <div>
-                        <span class="code-pill">{found['code']}</span>
-                        <strong style="margin-left: 0.5rem; color: #0f172a;">{found['cause']}</strong>
-                    </div>
-                    <span class="sec-tag">Réf: {found['source']} (Page {found['page']})</span>
-                </div>
-                <div style="margin-bottom: 0.75rem;">
-                    <span class="sec-tag">Procédure technique recommandée :</span>
-                    <p style="margin: 0.35rem 0 0 0; color: #1e293b; font-size: 0.95rem; line-height: 1.5;">{found['solution']}</p>
-                </div>
-                <div style="background: #f8fafc; border-radius: 6px; padding: 0.65rem 0.85rem; border-left: 3px solid #0d9488;">
-                    <span class="sec-tag" style="color: #0d9488;">Contrôles réglementaires exigés (NF EN 62353) :</span>
-                    <div style="font-size: 0.8rem; color: #475569; margin-top: 0.2rem;">
-                        1. Continuité de la terre de protection (&lt; 0,20 Ω)<br/>
-                        2. Mesure des courants de fuite à la terre et carcasse<br/>
-                        3. Validation des autotests et sécurités mécaniques/thermiques
-                    </div>
+    if q_clean:
+        # Recherche dans cet équipement en priorité
+        active_err = next((e for e in device_errors if e["code"] in q_clean or q_clean in e["cause"].upper()), None)
+        # Sinon dans l'ensemble des pannes
+        if not active_err:
+            all_errs = load_errors_for_equipment(None)
+            active_err = next((e for e in all_errs if e["code"] in q_clean or q_clean in e["cause"].upper()), None)
+
+    # 2. AFFICHAGE DE LA SOLUTION AU PREMIER PLAN
+    if active_err:
+        st.markdown(f"""
+        <div class="active-solution-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                <span class="code-badge-big">{active_err['code']}</span>
+                <span style="font-size:0.8rem; color:#64748b; font-weight:600;">Source : {active_err['source']} (Page {active_err['page']})</span>
+            </div>
+            <h4 style="margin:0 0 0.5rem 0; color:#0f172a;">{active_err['cause']}</h4>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.85rem; font-size:0.95rem; color:#1e293b; line-height:1.5;">
+                <strong>Action corrective :</strong><br/>
+                {active_err['solution']}
+            </div>
+            <div class="norme-box">
+                <strong style="color:#0d9488; font-size:0.85rem;">CONTRÔLES NF EN 62353 REQUIS :</strong>
+                <div style="font-size:0.8rem; color:#475569; margin-top:0.2rem;">
+                    • Continuité de la terre (&lt; 0,20 Ω) &nbsp;|&nbsp; • Courant de fuite contact &nbsp;|&nbsp; • Test fonctionnel en charge
                 </div>
             </div>
-            """, unsafe_allow_html=True)
-            
-            raw_resolution = f"Procédure constructeur ({found['source']} - p.{found['page']}) :\n\nCause : {found['cause']}\nAction : {found['solution']}"
-        else:
-            st.markdown(f"""
-            <div class="diag-card">
-                <div class="diag-header">
-                    <span class="code-pill" style="background:#f1f5f9; color:#475569;">DIAGNOSTIC GÉNÉRAL</span>
-                    <span class="sec-tag">{eq['brand']} {eq['model']}</span>
-                </div>
-                <p style="color: #1e293b; font-size: 0.95rem; margin-bottom: 0.5rem;">Aucun code spécifique extrait pour cette alerte. Procédure atelier standard :</p>
-                <div style="font-size: 0.85rem; color: #475569; line-height: 1.5;">
-                    1. Contrôler les tensions secondaires du bloc d'alimentation.<br/>
-                    2. Inspecter les capteurs et faisceaux de câblage.<br/>
-                    3. Lancer l'autodiagnostic en mode service constructeur.<br/>
-                    4. Réaliser les tests normatifs NF EN 62353 avant remise en service.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            raw_resolution = f"Procédure générale pour {eq['brand']} {eq['model']} (Symptôme: {query}) :\nContrôle des alimentations, faisceaux et autotests de sécurité."
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Barre d'actions
-        action1, action2 = st.columns([1, 1])
-        with action1:
-            pdf_bytes = generate_certified_pdf(
-                inv_id=selected_inv,
-                equipment_info=eq,
-                symptom=query,
-                resolution=raw_resolution,
-                tech_name="Hakki Ismail"
-            )
-            st.download_button(
-                label=f"📄 Télécharger la Fiche Certifiée (PDF)",
-                data=pdf_bytes,
-                file_name=f"Fiche_{eq['brand']}_{eq['model'].replace(' ', '_')}.pdf",
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True
-            )
-        with action2:
-            if st.button("📤 Clôturer & Valider l'intervention", use_container_width=True):
-                st.toast(f"Intervention sur {eq['brand']} {eq['model']} enregistrée avec succès.", icon="✅")
+        raw_resolution = f"Panne {active_err['code']} - {active_err['cause']}\nSolution : {active_err['solution']}"
+    else:
+        st.info("💡 Sélectionnez une panne dans la liste ci-dessous ou saisissez un mot-clé ci-dessus.")
+        raw_resolution = f"Diagnostic général pour {eq['brand']} {eq['model']} (Recherche : {search_query})"
 
-# ==========================================
-# ONGLET 2 : MATRICE DES PANNES
-# ==========================================
-with tab_matrix:
-    col_filter_dev, col_filter_kw = st.columns([1, 2])
-    with col_filter_dev:
-        filter_equip = st.selectbox(
-            "Filtrer par appareil",
-            options=["Tous les équipements"] + list(equipments.keys()),
-            format_func=lambda x: "Tous les dispositifs" if x == "Tous les équipements" else f"{equipments[x]['brand']} — {equipments[x]['model']}"
+    # Boutons d'export et validation toujours à portée de main
+    col_act1, col_act2 = st.columns(2)
+    with col_act1:
+        pdf_bytes = generate_certified_pdf(
+            inv_id=selected_inv,
+            equipment_info=eq,
+            symptom=search_query or "Contrôle général",
+            resolution=raw_resolution,
+            tech_name="Hakki Ismail"
         )
-    with col_filter_kw:
-        filter_txt = st.text_input("Filtrer par symptôme ou code", placeholder="Ex: E-02, rotor, débit, température...")
+        st.download_button(
+            label="📄 Télécharger la Fiche Certifiée (PDF)",
+            data=pdf_bytes,
+            file_name=f"Fiche_{eq['brand']}_{eq['model'].replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+    with col_act2:
+        if st.button("✅ Valider l'intervention", use_container_width=True):
+            st.toast(f"Intervention sur {eq['brand']} {eq['model']} validée.", icon="✔")
 
-    displayed_errors = load_errors_for_equipment(filter_equip)
-    if filter_txt:
-        displayed_errors = [
-            e for e in displayed_errors
-            if filter_txt.lower() in e["code"].lower()
-            or filter_txt.lower() in e["cause"].lower()
-            or filter_txt.lower() in e["solution"].lower()
-        ]
+    st.divider()
 
-    st.caption(f"{len(displayed_errors)} anomalie(s) répertoriée(s).")
+    # 3. MATRICE COMPLÈTE DIRECTEMENT INTÉGRÉE SOUS LES YEUX DU TECHNICIEN
+    st.markdown(f"#### 📋 Toutes les pannes répertoriées pour cet appareil ({len(device_errors)})")
+    st.caption("👉 Cliquez sur **« Voir la solution »** pour charger immédiatement la fiche sans rien taper :")
 
-    if displayed_errors:
-        for err in displayed_errors:
+    if device_errors:
+        for err in device_errors:
             with st.container(border=True):
-                c1, c2, c3 = st.columns([1, 4, 1])
-                with c1:
+                c_code, c_desc, c_btn = st.columns([1, 4, 1.5])
+                with c_code:
                     st.code(err["code"])
-                with c2:
-                    st.markdown(f"**Cause :** {err['cause']}")
-                    st.markdown(f"**Action corrective :** {err['solution']}")
-                with c3:
-                    st.caption(f"{err['source']}\nPage {err['page']}")
+                with c_desc:
+                    st.markdown(f"**{err['cause']}**")
+                    st.caption(f"{err['solution'][:110]}...")
+                with c_btn:
+                    # Le clic injecte directement la panne dans le diagnostic du haut
+                    if st.button("Voir la solution", key=f"btn_{err['id_inv']}_{err['code']}_{err['page']}", use_container_width=True):
+                        st.session_state["active_code"] = err["code"]
+                        st.rerun()
     else:
-        st.info("Aucune panne ne correspond aux filtres appliqués.")
-
-# ==========================================
-# ONGLET 3 : BIBLIOTHÈQUE MANUELS
-# ==========================================
-with tab_db:
-    if saved_manuals:
-        for m in saved_manuals:
-            fname, udate, size_b, brand, model, inv_id = m
-            size_mb = size_b / (1024 * 1024)
-            with st.container(border=True):
-                c_info1, c_info2 = st.columns([3, 1])
-                with c_info1:
-                    st.markdown(f"### {brand} — {model}")
-                    st.caption(f"Fichier : `{fname}` | Taille : **{size_mb:.2f} Mo** | Identifiant : `{inv_id}`")
-                with c_info2:
-                    st.write(f"📅 Indexé le {udate}")
-    else:
-        st.info("Aucun manuel stocké.")
+        st.warning("Aucune panne n'a encore été extraite pour ce manuel. Déposez un PDF dans la colonne de gauche pour l'alimenter automatiquement.")
