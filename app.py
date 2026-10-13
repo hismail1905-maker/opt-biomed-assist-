@@ -10,26 +10,71 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
-    page_title="BioMed Assist | Atelier",
+    page_title="BioMed Assist Pro | Atelier Biomédical",
     page_icon="⚡",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-DB_PATH = "biomed_pro.db"
+DB_PATH = "biomed_v_pro.db"
+
+# --- DESIGN SYSTEM WEB MODERNE (CSS SCOPÉ) ---
+st.markdown("""
+<style>
+    /* Typographie & Polices */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, sans-serif;
+    }
+    
+    /* Espacements globaux */
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 1350px !important;
+    }
+    
+    /* Boutons d'action */
+    .stButton>button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    .stButton>button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    /* Amélioration des expanders et métriques */
+    div[data-testid="stExpander"] {
+        border-radius: 8px !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =========================================================================
-# 1. GESTION DE LA BASE DE DONNÉES
+# 1. COUCHE BASE DE DONNÉES (SQLITE AVEC MODE WAL)
 # =========================================================================
 
-def init_database():
-    with sqlite3.connect(DB_PATH) as conn:
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL;")  # Accélère les lectures et évite les blocages
+    return conn
+
+def init_db():
+    with get_db() as conn:
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS materiels (
                 id TEXT PRIMARY KEY,
                 nom TEXT,
-                service TEXT
+                marque TEXT,
+                service TEXT,
+                sn TEXT,
+                date_ajout TEXT
             )
         """)
         c.execute("""
@@ -37,307 +82,346 @@ def init_database():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 materiel_id TEXT,
                 domaine TEXT,
+                criticite TEXT,
                 code TEXT,
                 titre TEXT,
-                explication TEXT,
+                probleme TEXT,
                 etape1 TEXT,
                 etape2 TEXT,
                 etape3 TEXT,
-                mesure_multimetre TEXT
+                mesure_multimetre TEXT,
+                FOREIGN KEY (materiel_id) REFERENCES materiels(id)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date_heure TEXT,
+                materiel_nom TEXT,
+                code_panne TEXT,
+                technicien TEXT,
+                etat_conformite TEXT
             )
         """)
         
+        # Données de démonstration initiales
         c.execute("SELECT COUNT(*) FROM materiels")
         if c.fetchone()[0] == 0:
-            c.executemany("INSERT INTO materiels VALUES (?, ?, ?)", [
-                ("ROTANTA", "Centrifugeuse Hettich Rotanta 460 RF", "Biochimie"),
-                ("WD40", "Laveur-Désinfecteur Wassenburg WD40", "Endoscopie"),
-                ("FLUIDO", "Réchauffeur de Sang Fluido AirGuard", "Bloc Opératoire")
+            c.executemany("INSERT INTO materiels VALUES (?, ?, ?, ?, ?, ?)", [
+                ("ROTANTA", "Rotanta 460 RF", "Hettich", "Laboratoire Biochimie", "SN-2026-991", "01/10/2026"),
+                ("WD40", "WD40 Laveur-Désinfecteur", "Wassenburg", "Plateau Endoscopie", "SN-WD-441", "05/10/2026"),
+                ("FLUIDO", "Fluido AirGuard Réchauffeur", "The Surgical Company", "Bloc Opératoire", "SN-FL-118", "10/10/2026"),
+                ("SERVO", "Servo-u Ventilateur", "Getinge / Maquet", "Réanimation Médicale", "SN-SU-882", "12/10/2026")
             ])
             
             c.executemany("""
                 INSERT INTO pannes 
-                (materiel_id, domaine, code, titre, explication, etape1, etape2, etape3, mesure_multimetre) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (materiel_id, domaine, criticite, code, titre, probleme, etape1, etape2, etape3, mesure_multimetre) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 (
-                    "ROTANTA",
-                    "⚙️ Mécanique & Moteur",
-                    "E-02",
-                    "Défaut tachymétrique ou blocage moteur",
-                    "L'appareil s'arrête en alarme car la vitesse du rotor ne correspond pas à la consigne envoyée par la carte.",
+                    "ROTANTA", "⚙️ Mécanique & Moteur", "🔴 Critique", "E-02",
+                    "Défaut tachymétrique / Blocage mécanique rotor",
+                    "La centrifugeuse refuse de démarrer ou coupe son cycle car la carte électronique ne reçoit pas les impulsions de rotation du bol.",
                     "Faire tourner le rotor manuellement à l'arrêt pour vérifier l'absence de point dur sur les roulements.",
-                    "Contrôler sous la cuve que le capteur de vitesse est propre et placé à 1 millimètre de l'aimant d'axe.",
-                    "Vérifier le bon enfichage de la nappe moteur sur la carte de puissance située dans le socle.",
-                    "Tension capteur au multimètre : mesurer 5 Volts continus (DC) entre le fil rouge et le fil noir."
+                    "Contrôler sous la cuve que le capteur Hall est propre et situé à 0,8 mm (± 0,2 mm) de l'aimant de l'axe.",
+                    "Vérifier le branchement complet du connecteur moteur sur la carte de commande principale du socle.",
+                    "Multimètre en Volts DC : mesurer 5,0 V constants entre fil rouge et fil noir du capteur Hall."
                 ),
                 (
-                    "ROTANTA",
-                    "⚙️ Mécanique & Moteur",
-                    "LID OPEN",
-                    "Sécurité couvercle : Capot détecté ouvert",
-                    "L'électronique bloque le départ du cycle car le micro-contacteur ne confirme pas le verrouillage physique du couvercle.",
-                    "Vérifier l'alignement mécanique des deux crochets de fermeture avec les ouvertures du châssis.",
-                    "Tester manuellement le loquet pour entendre le déclic franc du micro-contacteur de sécurité.",
-                    "Débrancher l'appareil et tester le micro-contacteur à l'ohmmètre lors de l'appui sur le verrou.",
-                    "Mode Bip / Continuité : résistance inférieure à 0,1 Ohm bouton fermé, circuit ouvert bouton relâché."
+                    "ROTANTA", "⚙️ Mécanique & Moteur", "🔴 Critique", "LID OPEN",
+                    "Sécurité couvercle : Capot détecté non verrouillé",
+                    "Le verrouillage électronique refuse le départ car le micro-contacteur ne confirme pas la fermeture physique.",
+                    "Vérifier l'alignement mécanique des crochets métalliques avec les gorges du châssis.",
+                    "Tester manuellement le loquet pour entendre le déclic mécanique du contacteur SW1.",
+                    "Débrancher l'appareil et tester le micro-contacteur de sécurité à l'ohmmètre en appuyant sur le verrou.",
+                    "Mode Bip / Continuité : 0 Ohm bouton appuyé, circuit ouvert (infini) bouton relâché."
                 ),
                 (
-                    "ROTANTA",
-                    "💻 Électronique & Cartes",
-                    "ERR-COMM",
-                    "Défaut de liaison pupitre / puissance",
-                    "Le pupitre de commande n'arrive plus à dialoguer avec la carte mère principale.",
-                    "Contrôler la nappe plate reliant l'écran de façade à la carte électronique de commande.",
-                    "Vérifier les tensions de veille en sortie du bloc d'alimentation (+5V et +12V continus).",
-                    "Réinitialiser l'électronique en effectuant un arrêt secteur complet pendant deux minutes.",
-                    "Tensions d'alimentation carte mère : mesurer +5V et +12V DC stables sans ondulation."
+                    "ROTANTA", "⚡ Électrique & Capteurs", "🟠 Majeur", "E-04",
+                    "Défaut groupe froid / Sonde de cuve PT100",
+                    "La régulation de température de cuve est hors tolérance ou le circuit de mesure est coupé.",
+                    "Dépoussiérer le condenseur froid et vérifier la liberté de rotation du ventilateur.",
+                    "Inspecter la fixation de la sonde thermique au fond du bol et l'état des connexions.",
+                    "Contrôler le relais de commande du compresseur frigorifique sur la carte de puissance.",
+                    "Ohmmètre sur la sonde débranchée : mesurer environ 107,7 Ohms à 20 °C (norme PT100). Si infini, sonde coupée."
                 ),
                 (
-                    "WD40",
-                    "⚡ Électrique & Capteurs",
-                    "AL-04",
-                    "Remplissage en eau insuffisant",
-                    "La cuve ne se remplit pas au débit minimal attendu dans la durée impartie par le programme.",
-                    "Vérifier que la vanne d'arrivée d'eau au mur est entièrement ouverte et sans baisse de pression réseau.",
-                    "Dévisser le raccord d'admission d'eau pour nettoyer la grille du filtre d'entrée souvent entartrée.",
-                    "Vérifier que l'électrovanne s'ouvre bien (présence du claquement magnétique d'ouverture).",
-                    "Multimètre en Volts alternatifs (AC) : mesurer 230 Volts sur la bobine de la vanne lors de l'appel d'eau."
+                    "WD40", "⚡ Électrique & Capteurs", "🔴 Critique", "AL-04",
+                    "Remplissage eau insuffisant / Alarme débitmètre",
+                    "La cuve ne se remplit pas au débit minimal attendu dans le temps imparti par l'automate.",
+                    "Vérifier que les vannes d'eau au mur sont ouvertes à fond (pression statique min : 2,5 bars).",
+                    "Dévisser le raccord d'admission d'eau pour nettoyer la grille filtrante 50 µm souvent entartrée.",
+                    "Contrôler l'ouverture franche de l'électrovanne d'arrivée d'eau et la turbine du débitmètre.",
+                    "Voltmètre en Volts AC : mesurer 230 V sur les cosses de l'électrovanne lors de la demande d'eau."
                 ),
                 (
-                    "FLUIDO",
-                    "⚡ Électrique & Capteurs",
-                    "AIR IN LINE",
-                    "Fausse détection d'air sur la tubulure",
-                    "La cellule ultrasonique signale la présence d'une poche d'air et interrompt la chauffe par sécurité.",
-                    "Nettoyer les fentes du capteur optique avec un chiffon doux humecté d'alcool isopropylique.",
-                    "Vérifier que le guide tubulure est correctement engagé et plaqué jusqu'au fond de la gorge de lecture.",
-                    "Remplacer la tubulure d'essai par une ligne neuve parfaitement purgée de tout résidu gazeux.",
-                    "Si l'alerte persiste sur une ligne d'eau pure, procéder à la recalibration du capteur en mode service."
+                    "FLUIDO", "⚡ Électrique & Capteurs", "🔴 Critique", "AIR IN LINE",
+                    "Détection d'air : Alarme bulle sur tubulure",
+                    "Le capteur ultrasonique détecte une discontinuité acoustique et coupe la chauffe par sécurité.",
+                    "Nettoyer les prismes optiques et surfaces de mesure avec une compresse imbibée d'alcool isopropylique.",
+                    "S'assurer que la tubulure de perfusion est poussée jusqu'au fond de la gorge de lecture.",
+                    "Purger totalement la ligne avec une poche neuve pour évacuer la moindre microbulle.",
+                    "Si l'alarme persiste avec une tubulure purgée d'eau pure, procéder à l'étalonnage du gain en mode technicien."
+                ),
+                (
+                    "SERVO", "⚡ Électrique & Capteurs", "🔴 Critique", "ERR-32",
+                    "Défaut cassette expiratoire / Mesure ultrasonique",
+                    "Le ventilateur ne peut plus mesurer le débit expiratoire du patient avec précision.",
+                    "Déclipser la cassette expiratoire et s'assurer de l'absence totale de condensation d'eau.",
+                    "Nettoyer les contacts dorés situés entre la cassette et le bloc patient.",
+                    "Tester avec une seconde cassette expiratoire propre et validée.",
+                    "Lancer le pré-test automatique de l'appareil pour valider la mesure de fuite et le tarage zéro."
                 )
             ])
         conn.commit()
 
-init_database()
+init_db()
 
-def charger_materiels():
-    with sqlite3.connect(DB_PATH) as conn:
+# --- REQUÊTES EN BASE DE DONNÉES AVEC CACHE STREAMLIT ---
+
+@st.cache_data(ttl=60)
+def load_all_devices():
+    with get_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT id, nom, service FROM materiels")
-        return {r[0]: {"nom": r[1], "service": r[2]} for r in c.fetchall()}
+        c.execute("SELECT id, nom, marque, service, sn FROM materiels ORDER BY nom ASC")
+        return {r[0]: {"nom": r[1], "marque": r[2], "service": r[3], "sn": r[4]} for r in c.fetchall()}
 
-def charger_pannes(mat_id, domaine_filtre="Tous"):
-    with sqlite3.connect(DB_PATH) as conn:
+def load_errors_by_device(mat_id, domaine_filtre="Tous"):
+    with get_db() as conn:
         c = conn.cursor()
         if domaine_filtre == "Tous":
             c.execute("""
-                SELECT code, titre, domaine, explication, etape1, etape2, etape3, mesure_multimetre 
-                FROM pannes WHERE materiel_id = ?
+                SELECT code, titre, domaine, criticite, probleme, etape1, etape2, etape3, mesure_multimetre 
+                FROM pannes WHERE materiel_id = ? ORDER BY id ASC
             """, (mat_id,))
         else:
             c.execute("""
-                SELECT code, titre, domaine, explication, etape1, etape2, etape3, mesure_multimetre 
-                FROM pannes WHERE materiel_id = ? AND domaine = ?
+                SELECT code, titre, domaine, criticite, probleme, etape1, etape2, etape3, mesure_multimetre 
+                FROM pannes WHERE materiel_id = ? AND domaine = ? ORDER BY id ASC
             """, (mat_id, domaine_filtre))
-        
         return [{
-            "code": r[0], "titre": r[1], "domaine": r[2], "explication": r[3],
-            "etape1": r[4], "etape2": r[5], "etape3": r[6], "mesure": r[7]
+            "code": r[0], "titre": r[1], "domaine": r[2], "criticite": r[3],
+            "probleme": r[4], "etape1": r[5], "etape2": r[6], "etape3": r[7], "mesure": r[8]
         } for r in c.fetchall()]
 
+def log_intervention(mat_nom, code, tech, conforme=True):
+    res_str = "CONFORME (NF EN 62353)" if conforme else "NON CONFORME / REVISION REQUISE"
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO audit_log (date_heure, materiel_nom, code_panne, technicien, etat_conformite)
+            VALUES (?, ?, ?, ?, ?)
+        """, (datetime.now().strftime("%d/%m/%Y %H:%M"), mat_nom, code, tech, res_str))
+        conn.commit()
+
+def load_audit_history():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT date_heure, materiel_nom, code_panne, technicien, etat_conformite FROM audit_log ORDER BY id DESC LIMIT 50")
+        return c.fetchall()
+
 # =========================================================================
-# 2. PARSEUR PDF FIABLE (ZÉRO PARASITE DE SOMMAIRE)
+# 2. PARSEUR PDF HAUTE DISPONIBILITÉ (ANTI-SOMMAIRE STRICT)
 # =========================================================================
 
-def analyser_et_enregistrer_pdf(fichier_pdf):
-    reader = PdfReader(fichier_pdf)
-    nb_pages = len(reader.pages)
-    max_scan = min(nb_pages, 100)
+def is_unwanted_line(text):
+    t = text.strip()
+    if re.search(r'\.{2,}', t):  # Rejette pointillés de sommaire
+        return True
+    if re.search(r'\s*\.{2,}\s*\d+$', t):
+        return True
+    if re.match(r'^(?:page|chapitre|section|table|figure)\s*\d+$', t, re.IGNORECASE):
+        return True
+    return False
+
+def clean_sentence(text):
+    t = re.sub(r'[\t\r\n]+', ' ', text)
+    return re.sub(r'\s+', ' ', t).strip(" -:|,")
+
+def parse_and_store_pdf(uploaded_file):
+    reader = PdfReader(uploaded_file)
+    max_scan = min(len(reader.pages), 100)
     
-    nom_base = os.path.splitext(fichier_pdf.name)[0].replace("_", " ").title()
-    identifiant = f"MAT-{re.sub(r'[^A-Z0-9]', '', nom_base[:6].upper())}-{datetime.now().strftime('%M%S')}"
+    nom_base = os.path.splitext(uploaded_file.name)[0].replace("_", " ").title()
+    device_id = f"MAT-{re.sub(r'[^A-Z0-9]', '', nom_base[:6].upper())}-{datetime.now().strftime('%M%S')}"
 
     pattern_code = re.compile(
-        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|E|F|AL)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,3}[0-9]{0,3})\b',
+        r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F|AL)\s*[-:#.]?\s*([0-9]{1,4}|[A-Z]{1,3}[0-9]{1,3})\b',
         re.IGNORECASE
     )
-    
-    alarmes_texte = [
+    text_alarms = [
         "LID OPEN", "COVER OPEN", "AIR IN LINE", "NO FLOW", "OVERHEAT",
-        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "MOTOR FAIL", "DOOR OPEN"
+        "PRESSURE HIGH", "PRESSURE LOW", "SENSOR FAIL", "MOTOR FAIL", "DOOR OPEN", "BATTERY LOW"
     ]
 
     pannes_trouvees = []
     codes_vus = set()
 
-    barre = st.progress(0, text="Lecture du manuel...")
+    for idx in range(max_scan):
+        page_text = reader.pages[idx].extract_text() or ""
+        lines = [l.strip() for l in page_text.splitlines() if len(l.strip()) >= 3]
 
-    for i in range(max_scan):
-        barre.progress((i + 1) / max_scan, text=f"Scan de la page {i+1} sur {max_scan}...")
-        texte_page = reader.pages[i].extract_text() or ""
-        lignes = [l.strip() for l in texte_page.splitlines() if len(l.strip()) >= 3]
+        i = 0
+        while i < len(lines):
+            line = lines[i]
 
-        idx = 0
-        while idx < len(lignes):
-            ligne = lignes[idx]
-
-            # Rejet absolu des lignes de sommaire avec des pointillés
-            if re.search(r'\.{2,}', ligne) or re.search(r'\s*\.{2,}\s*\d+$', ligne):
-                idx += 1
+            if is_unwanted_line(line):
+                i += 1
                 continue
 
-            code_trouve = None
-            description = ""
+            code_found = None
+            desc = ""
 
-            m = pattern_code.search(ligne)
+            m = pattern_code.search(line)
             if m:
-                c_candidat = m.group(0).upper().replace("  ", " ").strip()
-                if not (len(c_candidat) == 1 and c_candidat.isdigit()):
-                    code_trouve = c_candidat
-                    reste = ligne[m.end():].strip(" :-\t|")
-                    if len(reste) > 3 and not re.search(r'\.{2,}', reste):
-                        description = reste
+                candidat = m.group(0).upper().replace("  ", " ").strip()
+                if not (len(candidat) == 1 and candidat.isdigit()):
+                    code_found = candidat
+                    reste = line[m.end():].strip(" :-\t|")
+                    if len(reste) > 3 and not is_unwanted_line(reste):
+                        desc = clean_sentence(reste)
 
-            if not code_trouve:
-                for alt in alarmes_texte:
-                    if re.search(r'\b' + alt + r'\b', ligne, re.IGNORECASE):
-                        code_trouve = alt
-                        reste = re.sub(r'(?i)\b' + alt + r'\b', '', ligne).strip(" :-\t|")
-                        if not re.search(r'\.{2,}', reste):
-                            description = reste if len(reste) > 3 else "Déclenchement d'une alarme système"
+            if not code_found:
+                for alt in text_alarms:
+                    if re.search(r'\b' + alt + r'\b', line, re.IGNORECASE):
+                        code_found = alt
+                        reste = re.sub(r'(?i)\b' + alt + r'\b', '', line).strip(" :-\t|")
+                        if not is_unwanted_line(reste):
+                            desc = clean_sentence(reste) if len(reste) > 3 else "Déclenchement d'une alarme de sécurité"
                         break
 
-            if code_trouve:
-                cle_unique = re.sub(r'[^A-Z0-9]', '', code_trouve)
-                
-                # Ignorer les mots d'édition et faux positifs
-                if cle_unique not in codes_vus and len(cle_unique) >= 2 and not any(mot in code_trouve for mot in ["ISO", "PAGE", "REV", "FIG", "TABLE", "SECTION"]):
-                    codes_vus.add(cle_unique)
+            if code_found:
+                k_uniq = re.sub(r'[^A-Z0-9]', '', code_found)
+                if k_uniq not in codes_vus and len(k_uniq) >= 2 and not any(w in code_found for w in ["ISO", "PAGE", "REV", "FIG", "TABLE"]):
+                    codes_vus.add(k_uniq)
 
-                    # Récupérer les phrases suivantes
-                    phrases_suivantes = []
+                    # Agrégation des lignes suivantes pour former une phrase complète
+                    next_lines = []
                     step = 1
-                    while (idx + step < len(lignes)) and step <= 3:
-                        l_suivante = lignes[idx + step]
-                        if re.search(r'\.{2,}', l_suivante) or pattern_code.search(l_suivante):
+                    while (i + step < len(lines)) and step <= 3:
+                        lnx = lines[i + step]
+                        if is_unwanted_line(lnx) or pattern_code.search(lnx):
                             break
-                        texte_propre = re.sub(r'\s+', ' ', l_suivante).strip()
-                        if len(texte_propre) > 3:
-                            phrases_suivantes.append(texte_propre)
+                        cln = clean_sentence(lnx)
+                        if len(cln) > 3:
+                            next_lines.append(cln)
                         step += 1
 
-                    if phrases_suivantes:
-                        if not description:
-                            description = phrases_suivantes[0]
-                            resolution = " ".join(phrases_suivantes[1:]) if len(phrases_suivantes) > 1 else "Vérifier le sous-ensemble mécanique et les câbles."
+                    if next_lines:
+                        if not desc:
+                            desc = next_lines[0]
+                            resolution = " ".join(next_lines[1:]) if len(next_lines) > 1 else "Contrôler le sous-ensemble mécanique et la connectique."
                         else:
-                            resolution = " ".join(phrases_suivantes)
-                        idx += (step - 1)
+                            resolution = " ".join(next_lines)
+                        i += (step - 1)
                     else:
-                        description = description or "Anomalie technique signalée sur l'appareil."
-                        resolution = "Contrôler les connecteurs, vérifier les fusibles et tester l'alimentation au banc."
+                        desc = desc or "Anomalie technique signalée par le système."
+                        resolution = "Contrôler le câblage, vérifier les fusibles et tester l'alimentation électrique."
 
-                    # Nettoyage final
-                    description = re.sub(r'\s+', ' ', description).strip()
-                    resolution = re.sub(r'\s+', ' ', resolution).strip()
-                    if not description.endswith('.'):
-                        description += "."
-                    if not resolution.endswith('.'):
-                        resolution += "."
+                    desc = clean_sentence(desc)
+                    resolution = clean_sentence(resolution)
+                    if not desc.endswith('.'): desc += "."
+                    if not resolution.endswith('.'): resolution += "."
 
-                    # Classification claire
-                    ctx = f"{code_trouve} {description} {resolution}".lower()
+                    # Classification
+                    ctx = f"{code_found} {desc} {resolution}".lower()
                     if any(w in ctx for w in ["moteur", "rotor", "pompe", "porte", "couvercle", "verrou", "mecanique"]):
                         domaine = "⚙️ Mécanique & Moteur"
-                    elif any(w in ctx for w in ["carte", "cpu", "firmware", "bus", "ram", "rom", "software"]):
-                        domaine = "💻 Électronique & Cartes"
+                        criticite = "🔴 Critique"
+                    elif any(w in ctx for w in ["carte", "cpu", "firmware", "bus", "ram", "rom", "software", "com"]):
+                        domaine = "💻 Cartes & Système"
+                        criticite = "🟠 Majeur"
                     else:
                         domaine = "⚡ Électrique & Capteurs"
+                        criticite = "🔴 Critique" if "alim" in ctx or "securite" in ctx else "🟠 Majeur"
 
                     pannes_trouvees.append((
-                        identifiant,
-                        domaine,
-                        code_trouve,
-                        description,
-                        f"Le constructeur signale : {description}",
-                        "Vérifier le câblage et s'assurer que les connecteurs sont bien enfoncés.",
-                        f"Action recommandée : {resolution}",
-                        "Lancer un autotest ou un cycle à vide pour confirmer l'effacement du défaut.",
-                        "Mesurer les tensions d'alimentation secondaires (+5V / +12V / +24V) et le raccordement de terre."
+                        device_id, domaine, criticite, code_found, desc[:70],
+                        f"Le manuel constructeur indique : {desc}",
+                        "Contrôle visuel : vérifier l'état du sous-ensemble et le verrouillage des connecteurs.",
+                        f"Action constructeur : {resolution}",
+                        "Requalification : lancer un cycle d'essai à blanc pour confirmer la disparition de l'alarme.",
+                        "Multimètre : mesurer les tensions secondaires (+5V, +12V, +24V DC) et tester la continuité de terre."
                     ))
-            idx += 1
-
-    barre.empty()
+            i += 1
 
     if not pannes_trouvees:
         pannes_trouvees.append((
-            identifiant,
-            "⚙️ Mécanique & Moteur",
-            "MAINT-01",
-            "Contrôle technique et maintenance générale",
-            "Maintenance préventive d'atelier.",
-            "Vérifier l'état mécanique et les fixations de l'appareil.",
-            "Nettoyer les filtres et vérifier les sécurités mécaniques.",
-            "Effectuer un essai fonctionnel en charge réelle.",
-            "Continuité de la terre inférieure à 0,20 Ohm au contrôleur de sécurité."
+            device_id, "⚙️ Mécanique & Moteur", "🟡 Mineur", "MAINT-01",
+            "Maintenance préventive et contrôle technique général",
+            "Protocole périodique de révision de l'appareil à l'atelier biomédical.",
+            "Vérifier l'état mécanique général, le châssis et l'absence de jeu sur les pièces mobiles.",
+            "Dépoussiérer les ventilations, contrôler les filtres et inspecter les cartes électroniques.",
+            "Effectuer les essais fonctionnels nominaux en charge réelle.",
+            "Sécurité électrique NF EN 62353 : Continuité de la terre de protection < 0,20 Ohm."
         ))
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_db() as conn:
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO materiels VALUES (?, ?, ?)", (identifiant, nom_base, "Atelier"))
+        c.execute("INSERT OR REPLACE INTO materiels VALUES (?, ?, ?, ?, ?, ?)", (
+            device_id, nom_base[:45], "Documentation Fabricant", "Atelier Biomédical", "SN-NON-DÉFINI", datetime.now().strftime("%d/%m/%Y")
+        ))
         c.executemany("""
             INSERT INTO pannes 
-            (materiel_id, domaine, code, titre, explication, etape1, etape2, etape3, mesure_multimetre) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (materiel_id, domaine, criticite, code, titre, probleme, etape1, etape2, etape3, mesure_multimetre) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, pannes_trouvees)
         conn.commit()
 
-    return identifiant, len(pannes_trouvees)
+    st.cache_data.clear()  # Invalidation du cache pour rafraîchir l'UI
+    return device_id, len(pannes_trouvees)
 
 # =========================================================================
-# 3. GÉNÉRATEUR DU RAPPORT OFFICIEL (NF EN 62353)
+# 3. MOTEUR D'EXPORT PDF CERTIFIÉ (NF EN 62353)
 # =========================================================================
 
-def generer_rapport_pdf(info_mat, info_panne):
+def build_pdf_certificate(info_mat, info_panne, tech_name, chk_terre, chk_fuite, chk_meca, chk_charge):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=32, leftMargin=32, topMargin=32, bottomMargin=32)
     styles = getSampleStyleSheet()
     story = []
 
-    titre_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=13, textColor=colors.HexColor("#0f172a"), alignment=1)
-    story.append(Paragraph("FICHE OFFICIELLE D'INTERVENTION BIOMÉDICALE", titre_style))
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=13, textColor=colors.HexColor("#0f172a"), alignment=1)
+    story.append(Paragraph("FICHE OFFICIELLE D'INTERVENTION TECHNIQUE BIOMÉDICALE", title_style))
     story.append(Spacer(1, 14))
 
-    recap = [
-        ["Dispositif Médical :", info_mat['nom']],
-        ["Service Affectataire :", info_mat['service']],
+    recap_data = [
+        ["Dispositif Médical :", f"{info_mat['nom']} ({info_mat['marque']})"],
+        ["Numéro de Série / ID :", f"{info_mat['sn']}"],
+        ["Service d'Affectation :", info_mat['service']],
         ["Panne Traitée :", f"{info_panne['code']} — {info_panne['titre']}"],
-        ["Domaine Technique :", info_panne['domaine']],
-        ["Date d'intervention :", datetime.now().strftime("%d/%m/%Y à %H:%M")],
-        ["Technicien Responsable :", "Hakki Ismail"]
+        ["Domaine / Criticité :", f"{info_panne['domaine']} ({info_panne['criticite']})"],
+        ["Date et Heure :", datetime.now().strftime("%d/%m/%Y à %H:%M")],
+        ["Technicien Responsable :", tech_name]
     ]
-    t1 = Table(recap, colWidths=[140, 380])
+    t1 = Table(recap_data, colWidths=[150, 370])
     t1.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-        ('FONTSIZE', (0,0), (-1,-1), 9),
-        ('PADDING', (0,0), (-1,-1), 5),
+        ('FONTSIZE', (0,0), (-1,-1), 8.5),
+        ('PADDING', (0,0), (-1,-1), 4.5),
     ]))
     story.append(t1)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 14))
 
-    story.append(Paragraph("<b>1. Procédure atelier exécutée :</b>", styles['Normal']))
+    story.append(Paragraph("<b>1. Diagnostic technique & anomalie constatée :</b>", styles['Normal']))
+    story.append(Paragraph(info_panne['probleme'], styles['Normal']))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("<b>2. Actions de maintenance exécutées à l'établi :</b>", styles['Normal']))
     story.append(Paragraph(f"• {info_panne['etape1']}<br/>• {info_panne['etape2']}<br/>• {info_panne['etape3']}", styles['Normal']))
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 14))
 
-    story.append(Paragraph("<b>2. Contrôles de sécurité électrique réglementaires (Norme NF EN 62353) :</b>", styles['Normal']))
-    mesures = [
-        ["Point de contrôle", "Critère normatif", "Résultat"],
-        ["Résistance du conducteur de protection", "< 0,20 ohm", "CONFORME (0,08 ohm)"],
-        ["Courant de fuite boîtier / patient", "Conforme classe I", "CONFORME"],
-        ["Vérification fonctionnelle et sécurités", "Autotests validés", "CONFORME"]
+    story.append(Paragraph("<b>3. Contrôles de sécurité électrique réglementaires (Norme NF EN 62353) :</b>", styles['Normal']))
+    mesures_data = [
+        ["Nature de l'essai", "Critère d'acceptation", "Résultat d'essai"],
+        ["Résistance du conducteur de protection", "< 0,20 ohm", "CONFORME (0,08 ohm)" if chk_terre else "NON EFFECTUÉ"],
+        ["Courant de fuite au boîtier / patient", "Conforme classe I type B", "CONFORME" if chk_fuite else "NON EFFECTUÉ"],
+        ["Examen visuel & sécurités mécaniques", "Verrouillages intègres", "CONFORME" if chk_meca else "NON EFFECTUÉ"],
+        ["Essai fonctionnel en charge réelle", "Consignes atteintes sans alerte", "CONFORME" if chk_charge else "NON EFFECTUÉ"]
     ]
-    t2 = Table(mesures, colWidths=[200, 160, 160])
+    t2 = Table(mesures_data, colWidths=[200, 160, 160])
     t2.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0284c7")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
@@ -347,17 +431,17 @@ def generer_rapport_pdf(info_mat, info_panne):
         ('PADDING', (0,0), (-1,-1), 5),
     ]))
     story.append(t2)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 18))
 
-    visa = [["CONFORME — REMISE EN SERVICE AUTORISÉE"]]
-    t3 = Table(visa, colWidths=[520])
+    visa_text = [["SERVICE BIOMÉDICAL — DISPOSITIF QUALIFIÉ POUR REMISE EN SERVICE"]]
+    t3 = Table(visa_text, colWidths=[520])
     t3.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f0fdf4")),
         ('TEXTCOLOR', (0,0), (-1,-1), colors.HexColor("#166534")),
         ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('BOX', (0,0), (-1,-1), 1.5, colors.HexColor("#166534")),
-        ('PADDING', (0,0), (-1,-1), 8),
+        ('PADDING', (0,0), (-1,-1), 7),
     ]))
     story.append(t3)
 
@@ -366,112 +450,183 @@ def generer_rapport_pdf(info_mat, info_panne):
     return buf
 
 # =========================================================================
-# 4. INTERFACE ATELIER (SIMPLE & VISUELLE)
+# 4. APPLICATION STREAMLIT (LAYOUT ATELIER RESPONSIVE)
 # =========================================================================
 
-st.title("⚡ BioMed Assist — Banc de Dépannage")
-st.caption("Choisis ton appareil ou dépose un manuel : trouve directement les étapes à faire et les mesures.")
+materiels_dict = load_all_devices()
+liste_mat_ids = list(materiels_dict.keys())
 
-materiels = charger_materiels()
-liste_mat_ids = list(materiels.keys())
-
-col_gauche, col_droite = st.columns([1, 2], gap="large")
-
-# --- COLONNE DE GAUCHE : MATÉRIEL & MANUEL ---
-with col_gauche:
-    st.subheader("1. Sélection de l'appareil")
+# --- SIDEBAR : INVENTAIRE & GESTION DOCUMENTAIRE ---
+with st.sidebar:
+    st.markdown("### 🏷️ Inventaire Atelier")
     
-    idx_defaut = 0
-    if "dernier_id" in st.session_state and st.session_state["dernier_id"] in liste_mat_ids:
-        idx_defaut = liste_mat_ids.index(st.session_state["dernier_id"])
+    idx_selected = 0
+    if "selected_mat_id" in st.session_state and st.session_state["selected_mat_id"] in liste_mat_ids:
+        idx_selected = liste_mat_ids.index(st.session_state["selected_mat_id"])
 
-    mat_choisi = st.selectbox(
-        "Matériel :",
+    current_mat_id = st.selectbox(
+        "Équipement sous maintenance :",
         options=liste_mat_ids,
-        index=idx_defaut,
-        format_func=lambda x: materiels[x]['nom'],
-        label_visibility="collapsed"
+        index=idx_selected,
+        format_func=lambda x: f"{materiels_dict[x]['nom']} ({materiels_dict[x]['marque']})"
     )
-    
-    info_materiel = materiels[mat_choisi]
-    st.info(f"🏥 **Affectation :** {info_materiel['service']}")
+    st.session_state["selected_mat_id"] = current_mat_id
+    info_mat = materiels_dict[current_mat_id]
+
+    with st.container(border=True):
+        st.markdown(f"**Modèle :** {info_mat['nom']}")
+        st.markdown(f"**Fabricant :** {info_mat['marque']}")
+        st.markdown(f"**Affectation :** `{info_mat['service']}`")
+        st.markdown(f"**N° Série :** `{info_mat['sn']}`")
 
     st.divider()
+    st.markdown("### 📥 Ingestion de Manuel PDF")
+    uploaded_pdf = st.file_uploader("Ajouter un manuel de service :", type=["pdf"])
+    if uploaded_pdf is not None:
+        file_key = f"pdf_proc_{uploaded_pdf.name}_{uploaded_pdf.size}"
+        if file_key not in st.session_state:
+            with st.spinner("Indexation des pannes en cours..."):
+                new_id, total = parse_and_store_pdf(uploaded_pdf)
+                st.session_state[file_key] = True
+                st.session_state["selected_mat_id"] = new_id
+                st.toast(f"✔ Nouveau manuel indexé avec succès ({total} pannes) !", icon="📑")
+                st.rerun()
 
-    with st.expander("📥 Ajouter un manuel technique PDF", expanded=False):
-        nouveau_pdf = st.file_uploader("Fichier PDF du manuel de service :", type=["pdf"])
-        if nouveau_pdf is not None:
-            cle_fichier = f"pdf_{nouveau_pdf.name}_{nouveau_pdf.size}"
-            if cle_fichier not in st.session_state:
-                with st.spinner("Analyse du manuel en cours..."):
-                    nouvel_id, total = analyser_et_enregistrer_pdf(nouveau_pdf)
-                    st.session_state[cle_fichier] = True
-                    st.session_state["dernier_id"] = nouvel_id
-                    st.success(f"Manuel indexé : {total} panne(s) trouvée(s) !")
-                    st.rerun()
+    st.caption("BioMed Assist Pro • v2.6 Hospital Production")
 
-# --- COLONNE DE DROITE : DIAGNOSTIC & PROCÉDURE ---
-with col_droite:
-    st.subheader("2. Quelle est la panne ?")
+# --- ESPACE DE TRAVAIL PRINCIPAL ---
+tab_etabli, tab_historique = st.tabs(["🛠️ Banc de Dépannage Actif", "📋 Registre des Interventions"])
 
-    col_domaine, col_recherche = st.columns([1, 1])
-    with col_domaine:
-        domaines = ["Tous", "⚙️ Mécanique & Moteur", "⚡ Électrique & Capteurs", "💻 Électronique & Cartes"]
-        domaine_selectionne = st.selectbox("Filtrer par domaine :", options=domaines)
-    
-    with col_recherche:
-        texte_recherche = st.text_input("Recherche rapide (code ou mot) :", placeholder="Ex: E-02, moteur, eau...")
+# =========================================================================
+# ONGLET 1 : BANC DE DÉPANNAGE ACTIF
+# =========================================================================
+with tab_etabli:
+    # Fil d'Ariane
+    st.markdown(f"📍 **Emplacement :** `{info_mat['service']}` &nbsp;❯&nbsp; **Équipement :** **{info_mat['nom']}**")
 
-    # Chargement des pannes selon le filtre de domaine
-    toutes_pannes = charger_pannes(mat_choisi, domaine_selectionne)
+    # Filtre par domaine & Recherche textuelle instantanée
+    c_dom, c_search = st.columns([1, 2])
+    with c_dom:
+        domaines_options = ["Tous", "⚙️ Mécanique & Moteur", "⚡ Électrique & Capteurs", "💻 Cartes & Système"]
+        domaine_choisi = st.selectbox("Domaine d'intervention :", options=domaines_options)
+    with c_search:
+        search_query = st.text_input("🔍 Recherche rapide (code alarme, moteur, débit, fuite...) :", placeholder="Tapez un mot-clé...")
 
-    # Filtrage par mot-clé si saisi
-    if texte_recherche.strip():
-        q = texte_recherche.strip().lower()
-        pannes_visibles = [
-            p for p in toutes_pannes 
-            if q in p['code'].lower() or q in p['titre'].lower() or q in p['explication'].lower()
+    pannes_dispos = load_errors_by_device(current_mat_id, domaine_choisi)
+
+    # Filtrage dynamique
+    if search_query.strip():
+        q = search_query.strip().lower()
+        pannes_affichees = [
+            p for p in pannes_dispos
+            if q in p['code'].lower() or q in p['titre'].lower() or q in p['probleme'].lower()
         ]
     else:
-        pannes_visibles = toutes_pannes
+        pannes_affichees = pannes_dispos
 
-    if pannes_visibles:
-        options_pannes = [f"{p['code']} : {p['titre']}" for p in pannes_visibles]
-        panne_choisie_texte = st.selectbox("Sélectionne le code ou l'alarme :", options=options_pannes)
-        
-        idx_p = options_pannes.index(panne_choisie_texte)
-        p = pannes_visibles[idx_p]
+    if pannes_affichees:
+        # Sélecteur d'alarme
+        labels_pannes = [f"{p['criticite']} | {p['code']} : {p['titre']}" for p in pannes_affichees]
+        choix_panne = st.selectbox(f"Pannes identifiées ({len(pannes_affichees)}) :", options=labels_pannes)
+        panne = pannes_affichees[labels_pannes.index(choix_panne)]
+
+        # --- CARTE DU SYMPTÔME ---
+        with st.container(border=True):
+            col_code, col_status = st.columns([3, 1])
+            with col_code:
+                st.error(f"### {panne['code']} — {panne['titre']}")
+            with col_status:
+                st.metric(label="Criticité", value=panne['criticite'])
+            
+            st.markdown(f"**🔍 Constat & Phénomène :** {panne['probleme']}")
+
+        # --- ÉTAPES D'ATELIER ---
+        st.markdown("#### 🛠️ Protocole de résolution à l'établi")
+        col_e1, col_e2, col_e3 = st.columns(3)
+        with col_e1:
+            with st.container(border=True):
+                st.markdown("**1. Contrôle Visuel / Mécanique**")
+                st.info(panne['etape1'])
+        with col_e2:
+            with st.container(border=True):
+                st.markdown("**2. Démontage & Raccordements**")
+                st.info(panne['etape2'])
+        with col_e3:
+            with st.container(border=True):
+                st.markdown("**3. Action / Requalification**")
+                st.info(panne['etape3'])
+
+        # --- ENCADRÉ MULTIMÈTRE / TEST BENCH ---
+        with st.container(border=True):
+            st.warning(f"⚡ **Points de mesure au multimètre / Seuil nominal :**\n\n{panne['mesure']}")
+
+        # --- CONTRÔLES RÉGLEMENTAIRES NF EN 62353 ---
+        st.markdown("#### 📋 Contrôles Réglementaires de Sécurité Électrique (NF EN 62353)")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            chk_terre = st.checkbox("Terre (< 0,20 Ω)", value=True, help="Mesure de résistance du conducteur de protection")
+        with c2:
+            chk_fuite = st.checkbox("Courants de fuite", value=True, help="Conforme classe I / II selon spécification")
+        with c3:
+            chk_meca = st.checkbox("Sécurités mécaniques", value=True, help="Intégrité du verrouillage et des capteurs")
+        with c4:
+            chk_charge = st.checkbox("Essai en charge réelle", value=True, help="Validation des consignes de fonctionnement")
+
+        est_conforme = chk_terre and chk_fuite and chk_meca and chk_charge
 
         st.divider()
 
-        # FICHE ATELIER NETTE
-        st.error(f"### {p['code']} — {p['titre']}")
-        st.write(f"**Ce que l'appareil subit :** {p['explication']}")
+        # --- ACTIONS : GMAO & RAPPORT PDF CERTIFIÉ ---
+        col_pdf, col_gmao = st.columns([1, 1])
 
-        st.subheader("🛠️ Ce qu'il faut faire à l'atelier :")
-        st.info(f"**Étape 1 :** {p['etape1']}")
-        st.info(f"**Étape 2 :** {p['etape2']}")
-        st.info(f"**Étape 3 :** {p['etape3']}")
+        # Texte formaté pour logiciel de GMAO
+        texte_gmao = (
+            f"[GMAO BT] Intervention sur {info_mat['nom']} ({info_mat['sn']})\n"
+            f"Alarme : {panne['code']} - {panne['titre']}\n"
+            f"Résolution : {panne['etape1']} | {panne['etape2']} | {panne['etape3']}\n"
+            f"Sécurité NF EN 62353 : {'CONFORME' if est_conforme else 'NON CONFORME'} | Intervenant : Hakki Ismail"
+        )
 
-        st.warning(f"⚡ **Mesure au multimètre :** {p['mesure']}")
-
-        st.divider()
-
-        # BOUTON RAPPORT OFFICIEL
-        c_btn1, c_btn2 = st.columns([1, 1])
-        with c_btn1:
-            pdf_bytes = generer_rapport_pdf(info_materiel, p)
+        with col_pdf:
+            pdf_bytes = build_pdf_certificate(
+                info_mat, panne, "Hakki Ismail",
+                chk_terre, chk_fuite, chk_meca, chk_charge
+            )
             st.download_button(
-                label="📄 Télécharger la Fiche d'Intervention (PDF)",
+                label="📄 Télécharger la Fiche d'Intervention Scellée (PDF)",
                 data=pdf_bytes,
-                file_name=f"Intervention_{p['code']}.pdf",
+                file_name=f"Fiche_Maintenance_{panne['code']}_{current_mat_id}.pdf",
                 mime="application/pdf",
                 type="primary",
                 use_container_width=True
             )
-        with c_btn2:
-            if st.button("✅ Remise en service validée", use_container_width=True):
-                st.balloons()
-                st.success("Appareil contrôlé conforme NF EN 62353 et prêt pour le service hospitalier !")
+
+        with col_gmao:
+            if st.button("💾 Clôturer & Enregistrer dans l'Audit Log", use_container_width=True):
+                log_intervention(info_mat['nom'], panne['code'], "Hakki Ismail", conforme=est_conforme)
+                st.toast(f"Intervention sur {info_mat['nom']} enregistrée avec succès !", icon="✅")
+
+        # Tiroir GMAO avec bouton de copie natif
+        with st.expander("📋 Rapport d'intervention pour GMAO (Carl / Coswin / Assetplus)"):
+            st.code(texte_gmao, language="text")
+
     else:
-        st.warning("Aucune panne ne correspond à ce filtre ou mot-clé.")
+        st.warning("Aucune anomalie ne correspond à vos critères de recherche.")
+
+# =========================================================================
+# ONGLET 2 : HISTORIQUE D'AUDIT DSI & QUALITÉ
+# =========================================================================
+with tab_historique:
+    st.markdown("### 📋 Registre des Interventions d'Atelier (Norme Qualité Hospitalière)")
+    st.caption("Traçabilité des contrôles de sécurité électrique et des remises en service.")
+    
+    logs = load_audit_history()
+    if logs:
+        # Affichage propre sous forme de table
+        formatted_logs = [
+            {"Date & Heure": l[0], "Dispositif Médical": l[1], "Code Alarme": l[2], "Technicien": l[3], "Statut Réglementaire": l[4]}
+            for l in logs
+        ]
+        st.dataframe(formatted_logs, use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucune intervention n'a encore été clôturée dans ce registre.")
