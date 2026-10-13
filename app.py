@@ -575,18 +575,18 @@ with col_droite:
     st.caption("👉 Cliquez sur **« Voir la solution »** pour charger immédiatement la fiche sans rien taper :")
 
     if device_errors:
-        for err in device_errors:
-            with st.container(border=True):
-                c_code, c_desc, c_btn = st.columns([1, 4, 1.5])
-                with c_code:
-                    st.code(err["code"])
-                with c_desc:
-                    st.markdown(f"**{err['cause']}**")
-                    st.caption(f"{err['solution'][:110]}...")
-                with c_btn:
-                    # Le clic injecte directement la panne dans le diagnostic du haut
-                    if st.button("Voir la solution", key=f"btn_{err['id_inv']}_{err['code']}_{err['page']}", use_container_width=True):
-                        st.session_state["active_code"] = err["code"]
-                        st.rerun()
+       for idx, err in enumerate(device_errors):
+    with st.container(border=True):
+        c_code, c_desc, c_btn = st.columns([1, 4, 1.5])
+        with c_code:
+            st.code(err["code"])
+        with c_desc:
+            st.markdown(f"**{err['cause']}**")
+            st.caption(f"{err['solution'][:110]}...")
+        with c_btn:
+            # L'ajout de l'index 'idx' garantit une clé 100 % unique
+            if st.button("Voir la solution", key=f"btn_{err['id_inv']}_{idx}", use_container_width=True):
+                st.session_state["active_code"] = err["code"]
+                st.rerun()
     else:
         st.warning("Aucune panne n'a encore été extraite pour ce manuel. Déposez un PDF dans la colonne de gauche pour l'alimenter automatiquement.")
