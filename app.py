@@ -496,4 +496,87 @@ with tab_diag:
 
 1. Contrôler les tensions d'alimentation secondaires sur la carte mère.
 2. Inspecter les capteurs, cellules de mesure et faisceaux de câblage.
-3. Lancer la séquence d'autotest depuis
+3. Lancer la séquence d'autotest depuis le menu de service constructeur.
+4. Effectuer les contrôles de conformité NF EN 62353 avant remise en service."""
+
+        st.text_area("Consignes techniques et étapes de maintenance :", value=res_text, height=220)
+
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            pdf_bytes = generate_certified_pdf(
+                inv_id=selected_inv,
+                equipment_info=eq,
+                symptom=query,
+                resolution=res_text,
+                tech_name="Hakki Ismail"
+            )
+            st.download_button(
+                label=f"📄 Télécharger la Fiche Certifiée ({eq['model']})",
+                data=pdf_bytes,
+                file_name=f"Fiche_{eq['brand']}_{eq['model'].replace(' ', '_')}.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+        with btn_col2:
+            if st.button("📤 Valider l'intervention", use_container_width=True):
+                st.success(f"Intervention sur {eq['brand']} {eq['model']} validée et tracée !")
+
+# --- TAB 2 : MATRICE DES PANNES ---
+with tab_matrix:
+    st.subheader("📋 Matrice Complète des Pannes & Solutions")
+    
+    col_f1, col_f2 = st.columns([1, 2])
+    with col_f1:
+        filter_equip = st.selectbox(
+            "Filtrer par appareil :",
+            options=["Tous les équipements"] + list(equipments.keys()),
+            format_func=lambda x: "Tous les équipements" if x == "Tous les équipements" else f"{equipments[x]['brand']} — {equipments[x]['model']}"
+        )
+    with col_f2:
+        filter_txt = st.text_input("Filtrer par mot-clé (ex: rotor, capteur, débit, surchauffe...) :")
+
+    displayed_errors = load_errors_for_equipment(filter_equip)
+    
+    if filter_txt:
+        displayed_errors = [
+            e for e in displayed_errors
+            if filter_txt.lower() in e["code"].lower()
+            or filter_txt.lower() in e["cause"].lower()
+            or filter_txt.lower() in e["solution"].lower()
+        ]
+
+    st.caption(f"{len(displayed_errors)} code(s) panne(s) répertorié(s).")
+
+    if displayed_errors:
+        for err in displayed_errors:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([1, 4, 1])
+                with c1:
+                    st.code(err["code"])
+                with c2:
+                    st.markdown(f"**Cause :** {err['cause']}")
+                    st.write(f"**Action corrective :** {err['solution']}")
+                with c3:
+                    st.caption(f"{err['source']}\nPage {err['page']}")
+    else:
+        st.info("Aucune panne ne correspond aux critères sélectionnés.")
+
+# --- TAB 3 : ÉTAT DE LA BASE ---
+with tab_db:
+    st.subheader("💾 Répertoire des Équipements et Manuels Associés")
+    saved_manuals = load_saved_manuals()
+    
+    if saved_manuals:
+        for m in saved_manuals:
+            fname, udate, size_b, brand, model, inv_id = m
+            size_mb = size_b / (1024 * 1024)
+            with st.container(border=True):
+                c_info1, c_info2 = st.columns([3, 1])
+                with c_info1:
+                    st.markdown(f"### {brand} — {model}")
+                    st.caption(f"Fichier : `{fname}` | Taille : {size_mb:.2f} Mo")
+                with c_info2:
+                    st.write(f"📅 Enregistré le {udate}")
+    else:
+        st.info("Aucun manuel stocké.")
