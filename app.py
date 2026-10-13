@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-DB_PATH = "biomed_data_v3.db"
+DB_PATH = "biomed_data_v4.db"
 
 # --- STYLE CSS ÉPURÉ POUR USAGE ATELIER SIMPLE ---
 st.markdown("""
@@ -37,7 +37,6 @@ st.markdown("""
         max-width: 1400px !important;
     }
     
-    /* En-tête simplifié */
     .app-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         border-radius: 10px;
@@ -69,7 +68,6 @@ st.markdown("""
         font-size: 0.82rem;
     }
 
-    /* Carte de diagnostic sélectionnée */
     .active-solution-card {
         background: #ffffff;
         border: 2px solid #0284c7;
@@ -90,7 +88,21 @@ st.markdown("""
         display: inline-block;
     }
 
-    /* Boîte de conformité */
+    .cat-badge {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-left: 0.5rem;
+    }
+    .cat-meca { background: #fee2e2; color: #991b1b; }
+    .cat-elec { background: #fef3c7; color: #92400e; }
+    .cat-soft { background: #e0e7ff; color: #3730a3; }
+    .cat-capt { background: #dcfce7; color: #166534; }
+    .cat-ther { background: #ffedd5; color: #9a3412; }
+    .cat-autre { background: #f1f5f9; color: #475569; }
+
     .norme-box {
         background: #f0fdfa;
         border: 1px solid #ccfbf1;
@@ -102,7 +114,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DONNÉES ---
+# --- CLASSIFICATION AUTOMATIQUE INTELLIGENTE ---
+
+def classify_category(code_text, cause_text, solution_text):
+    """Classe la panne dans une catégorie matérielle ou logicielle."""
+    full_text = f"{code_text} {cause_text} {solution_text}".lower()
+
+    if any(k in full_text for k in ["rom", "ram", "firmware", "software", "eeprom", "watchdog", "bus can", "rs232", "communication", "comm error", "cpu", "programme", "checksum"]):
+        return "💻 Logiciel & Système"
+    if any(k in full_text for k in ["moteur", "motor", "rotor", "couvercle", "lid", "door", "verrou", "lock", "engrenage", "mécanique", "pompe", "clapet"]):
+        return "⚙️ Mécanique & Moteur"
+    if any(k in full_text for k in ["tension", "voltage", "puissance", "alimentation", "power", "fuse", "fusible", "batterie", "battery", "court-circuit", "relais"]):
+        return "⚡ Électrique & Alimentation"
+    if any(k in full_text for k in ["capteur", "sensor", "optique", "prisme", "détecteur", "tachy", "tachymètre", "aimant", "pressostat", "calibration"]):
+        return "📡 Capteurs & Mesure"
+    if any(k in full_text for k in ["temp", "température", "surchauffe", "overheat", "refroidissement", "compresseur", "fuite", "débit", "flow", "air in line"]):
+        return "🌡️ Thermique & Fluides"
+    
+    return "⚠️ Alertes Générales"
+
+# --- BASE DE DONNÉES SQLITE ---
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -132,6 +163,8 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 id_inv TEXT,
                 code TEXT,
+                title TEXT,
+                category TEXT,
                 cause TEXT,
                 solution TEXT,
                 source TEXT,
@@ -139,6 +172,7 @@ def init_db():
                 FOREIGN KEY (id_inv) REFERENCES equipments(id_inv)
             )
         """)
+        
         cursor.execute("SELECT COUNT(*) FROM equipments")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("""
@@ -150,13 +184,13 @@ def init_db():
                 ("EQ-FLUIDO", "The Surgical Co", "Fluido AirGuard", "SN-2026-118", "Bloc Opératoire", "BT-3890")
             ])
             cursor.executemany("""
-                INSERT INTO error_records (id_inv, code, cause, solution, source, page) 
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO error_records (id_inv, code, title, category, cause, solution, source, page) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, [
-                ("EQ-ROTANTA", "E-02", "Surchauffe cuve / Défaut tachymétrique", "Contrôler l'entrefer du capteur de vitesse sous le bol (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur et les enroulements du compresseur.", "Manuel Hettich", 48),
-                ("EQ-ROTANTA", "LID OPEN", "Contacteur couvercle défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Remplacer l'électro-aimant si résistance infinie.", "Manuel Hettich", 52),
-                ("EQ-WD40", "AL-04", "Débit d'eau osmosée insuffisant", "Nettoyer le tamis d'admission 50µm. Vérifier la pression statique amont (min 2,5 bars) et le débitmètre.", "Manuel WD40", 31),
-                ("EQ-FLUIDO", "AIR IN LINE", "Bulle détectée ou capteur encrassé", "Nettoyer les prismes optiques de détection avec de l'alcool isopropylique. Étalonner le capteur.", "Manuel Fluido", 19)
+                ("EQ-ROTANTA", "E-02", "E-02 : Surchauffe de cuve ou défaut de vitesse rotor", "🌡️ Thermique & Fluides", "Surchauffe cuve / Défaut tachymétrique", "Contrôler l'entrefer du capteur de vitesse sous le bol (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur et les enroulements du compresseur.", "Manuel Hettich", 48),
+                ("EQ-ROTANTA", "LID OPEN", "LID OPEN : Sécurité de verrouillage du couvercle", "⚙️ Mécanique & Moteur", "Contacteur couvercle défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Remplacer l'électro-aimant si résistance infinie.", "Manuel Hettich", 52),
+                ("EQ-WD40", "AL-04", "AL-04 : Débit insuffisant en alimentation d'eau", "🌡️ Thermique & Fluides", "Débit d'eau osmosée insuffisant", "Nettoyer le tamis d'admission 50µm. Vérifier la pression statique amont (min 2,5 bars) et le débitmètre.", "Manuel WD40", 31),
+                ("EQ-FLUIDO", "AIR IN LINE", "AIR IN LINE : Présence de bulles d'air dans la tubulure", "📡 Capteurs & Mesure", "Bulle détectée ou capteur encrassé", "Nettoyer les prismes optiques de détection avec de l'alcool isopropylique. Étalonner le capteur.", "Manuel Fluido", 19)
             ])
         conn.commit()
 
@@ -199,8 +233,9 @@ def auto_detect_brand_and_model(first_pages_text, filename):
 
     return detected_brand, detected_model
 
+# --- EXTRACTION, NETTOYAGE & DÉDOUBLONNAGE DES PANNES ---
+
 def parse_pdf_errors_advanced(uploaded_file):
-    extracted = []
     reader = PdfReader(uploaded_file)
     total_pages = len(reader.pages)
     max_pages = min(total_pages, 120)
@@ -218,6 +253,9 @@ def parse_pdf_errors_advanced(uploaded_file):
         "OVERHEAT", "TEMP HIGH", "TEMP LOW", "PRESSURE HIGH", "OCCLUSION", "DOOR OPEN",
         "SENSOR FAIL", "COMM ERROR", "MOTOR FAIL", "TACHO ERROR"
     ]
+
+    raw_extracted = []
+    seen_codes = set()
 
     for idx in range(max_pages):
         page_num = idx + 1
@@ -249,36 +287,47 @@ def parse_pdf_errors_advanced(uploaded_file):
                         break
 
             if code and not any(stop in code for stop in ["ISO", "POSTAL", "BARCODE", "REV"]):
-                collected_next = []
-                lookahead = 1
-                while (i + lookahead < len(raw_lines)) and lookahead <= 2:
-                    next_l = raw_lines[i + lookahead]
-                    if alarm_regex.search(next_l) or any(st_w in next_l.upper() for st_w in state_alarms):
-                        break
-                    collected_next.append(next_l)
-                    lookahead += 1
+                # Dédoublonnage direct
+                clean_key = re.sub(r'[^A-Z0-9]', '', code)
+                if clean_key not in seen_codes and len(clean_key) >= 2:
+                    seen_codes.add(clean_key)
 
-                if collected_next:
-                    if not cause:
-                        cause = collected_next[0]
-                        solution = collected_next[1] if len(collected_next) > 1 else ""
-                    else:
-                        solution = " ".join(collected_next)
-                    i += (lookahead - 1)
+                    collected_next = []
+                    lookahead = 1
+                    while (i + lookahead < len(raw_lines)) and lookahead <= 2:
+                        next_l = raw_lines[i + lookahead]
+                        if alarm_regex.search(next_l) or any(st_w in next_l.upper() for st_w in state_alarms):
+                            break
+                        collected_next.append(next_l)
+                        lookahead += 1
 
-                cause = cause or "Anomalie ou signal d'avertissement détecté"
-                solution = solution or "Vérifier la connectique, inspecter le capteur associé et effectuer l'autotest."
+                    if collected_next:
+                        if not cause:
+                            cause = collected_next[0]
+                            solution = collected_next[1] if len(collected_next) > 1 else ""
+                        else:
+                            solution = " ".join(collected_next)
+                        i += (lookahead - 1)
 
-                extracted.append({
-                    "code": code,
-                    "cause": cause[:140],
-                    "solution": solution[:260],
-                    "source": uploaded_file.name[:25],
-                    "page": page_num
-                })
+                    cause = cause or "Anomalie ou signal d'avertissement détecté"
+                    solution = solution or "Vérifier la connectique, inspecter le capteur associé et effectuer l'autotest."
+
+                    # Construction d'un titre compréhensible
+                    title = f"{code} : {cause[:60]}"
+                    category = classify_category(code, cause, solution)
+
+                    raw_extracted.append({
+                        "code": code,
+                        "title": title,
+                        "category": category,
+                        "cause": cause[:140],
+                        "solution": solution[:260],
+                        "source": uploaded_file.name[:25],
+                        "page": page_num
+                    })
             i += 1
 
-    return extracted, sample_text
+    return raw_extracted, sample_text
 
 def get_all_equipments():
     with sqlite3.connect(DB_PATH) as conn:
@@ -311,9 +360,9 @@ def save_manual_equipment_and_errors(brand, model, uploaded_file, extracted_erro
 
         for err in extracted_errors:
             cursor.execute("""
-                INSERT INTO error_records (id_inv, code, cause, solution, source, page)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (auto_id, err["code"], err["cause"], err["solution"], err["source"], err["page"]))
+                INSERT INTO error_records (id_inv, code, title, category, cause, solution, source, page)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (auto_id, err["code"], err["title"], err["category"], err["cause"], err["solution"], err["source"], err["page"]))
         conn.commit()
     return auto_id
 
@@ -322,22 +371,31 @@ def load_errors_for_equipment(id_inv=None):
         cursor = conn.cursor()
         if id_inv and id_inv != "Tous":
             cursor.execute("""
-                SELECT id_inv, code, cause, solution, source, page 
+                SELECT id_inv, code, title, category, cause, solution, source, page 
                 FROM error_records 
                 WHERE id_inv = ? 
-                ORDER BY id DESC
+                ORDER BY id ASC
             """, (id_inv,))
         else:
             cursor.execute("""
-                SELECT id_inv, code, cause, solution, source, page 
+                SELECT id_inv, code, title, category, cause, solution, source, page 
                 FROM error_records 
-                ORDER BY id DESC
+                ORDER BY id ASC
             """)
         rows = cursor.fetchall()
-        return [
-            {"id_inv": r[0], "code": r[1], "cause": r[2], "solution": r[3], "source": r[4], "page": r[5]}
-            for r in rows
-        ]
+        
+        # Dédoublonnage additionnel en base
+        unique_errors = []
+        seen = set()
+        for r in rows:
+            clean_key = f"{r[0]}_{re.sub(r'[^A-Z0-9]', '', r[1])}"
+            if clean_key not in seen:
+                seen.add(clean_key)
+                unique_errors.append({
+                    "id_inv": r[0], "code": r[1], "title": r[2], "category": r[3],
+                    "cause": r[4], "solution": r[5], "source": r[6], "page": r[7]
+                })
+        return unique_errors
 
 def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_name):
     buffer = io.BytesIO()
@@ -434,10 +492,6 @@ st.markdown("""
 equipments = get_all_equipments()
 eq_keys = list(equipments.keys())
 
-# =========================================================================
-# INTERFACE UNIFIÉE : SÉLECTION + RECHERCHE + SOLUTION + LISTE DES PANNES
-# =========================================================================
-
 col_gauche, col_droite = st.columns([1, 2], gap="medium")
 
 # --- COLONNE DE GAUCHE : CHOIX DE L'APPAREIL & AJOUT MANUEL ---
@@ -464,7 +518,7 @@ with col_gauche:
         if uploaded_pdf is not None:
             upload_key = f"proc_{uploaded_pdf.name}_{uploaded_pdf.size}"
             if upload_key not in st.session_state:
-                with st.spinner("Analyse et extraction automatique..."):
+                with st.spinner("Analyse, catégorisation et dédoublonnage..."):
                     extracted_errors, sample_txt = parse_pdf_errors_advanced(uploaded_pdf)
                     brand, model = auto_detect_brand_and_model(sample_txt, uploaded_pdf.name)
                     new_id = save_manual_equipment_and_errors(brand, model, uploaded_pdf, extracted_errors)
@@ -473,18 +527,19 @@ with col_gauche:
                     st.session_state["active_code"] = extracted_errors[0]["code"] if extracted_errors else ""
                     st.rerun()
 
-# --- COLONNE DE DROITE : DIAGNOSTIC & MATRICE ACCESSIBLES ENSEMBLE ---
+# --- COLONNE DE DROITE : DIAGNOSTIC & MATRICE PAR CATÉGORIE ---
 with col_droite:
     st.markdown(f"### 2. Dépannage : {eq['brand']} {eq['model']}")
 
     device_errors = load_errors_for_equipment(selected_inv)
 
+    # 1. Barre de recherche
     col_input, col_reset = st.columns([4, 1])
     with col_input:
         search_query = st.text_input(
             "Recherche de panne",
             value=st.session_state.get("active_code", ""),
-            placeholder="Tapez un code alarme ou un mot-clé (ex: E-02, couvercle, débit...)",
+            placeholder="Tapez un code alarme ou un mot-clé (ex: E-02, moteur, température...)",
             label_visibility="collapsed"
         )
     with col_reset:
@@ -492,25 +547,30 @@ with col_droite:
             st.session_state["active_code"] = ""
             st.rerun()
 
+    # Détection de la solution active
     q_clean = search_query.upper().strip()
     active_err = None
 
     if q_clean:
-        active_err = next((e for e in device_errors if e["code"] in q_clean or q_clean in e["cause"].upper()), None)
+        active_err = next((e for e in device_errors if e["code"] in q_clean or q_clean in e["cause"].upper() or q_clean in e["title"].upper()), None)
         if not active_err:
             all_errs = load_errors_for_equipment(None)
-            active_err = next((e for e in all_errs if e["code"] in q_clean or q_clean in e["cause"].upper()), None)
+            active_err = next((e for e in all_errs if e["code"] in q_clean or q_clean in e["cause"].upper() or q_clean in e["title"].upper()), None)
 
+    # 2. Affichage de la solution
     if active_err:
         st.markdown(f"""
         <div class="active-solution-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-                <span class="code-badge-big">{active_err['code']}</span>
+                <div>
+                    <span class="code-badge-big">{active_err['code']}</span>
+                    <span class="cat-badge cat-soft">{active_err['category']}</span>
+                </div>
                 <span style="font-size:0.8rem; color:#64748b; font-weight:600;">Source : {active_err['source']} (Page {active_err['page']})</span>
             </div>
-            <h4 style="margin:0 0 0.5rem 0; color:#0f172a;">{active_err['cause']}</h4>
+            <h4 style="margin:0 0 0.5rem 0; color:#0f172a;">{active_err['title']}</h4>
             <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:0.85rem; font-size:0.95rem; color:#1e293b; line-height:1.5;">
-                <strong>Action corrective :</strong><br/>
+                <strong>Action corrective constructeur :</strong><br/>
                 {active_err['solution']}
             </div>
             <div class="norme-box">
@@ -522,9 +582,9 @@ with col_droite:
         </div>
         """, unsafe_allow_html=True)
 
-        raw_resolution = f"Panne {active_err['code']} - {active_err['cause']}\nSolution : {active_err['solution']}"
+        raw_resolution = f"Panne : {active_err['title']}\nCatégorie : {active_err['category']}\nAction : {active_err['solution']}"
     else:
-        st.info("💡 Sélectionnez une panne dans la liste ci-dessous ou saisissez un mot-clé ci-dessus.")
+        st.info("💡 Sélectionnez une panne ci-dessous ou saisissez un mot-clé ci-dessus.")
         raw_resolution = f"Diagnostic général pour {eq['brand']} {eq['model']} (Recherche : {search_query})"
 
     col_act1, col_act2 = st.columns(2)
@@ -550,21 +610,28 @@ with col_droite:
 
     st.divider()
 
-    st.markdown(f"#### 📋 Toutes les pannes répertoriées pour cet appareil ({len(device_errors)})")
-    st.caption("👉 Cliquez sur **« Voir la solution »** pour charger immédiatement la fiche sans rien taper :")
+    # 3. FILTRE ET REGROUPEMENT PAR CATÉGORIE
+    st.markdown(f"#### 📋 Pannes répertoriées ({len(device_errors)} sans doublon)")
 
-    if device_errors:
-        for idx, err in enumerate(device_errors):
+    # Catégories disponibles
+    categories = ["Toutes les catégories"] + sorted(list(set(e["category"] for e in device_errors)))
+    selected_cat = st.segmented_control("Filtrer par domaine :", categories, default="Toutes les catégories")
+
+    filtered_errors = device_errors if selected_cat == "Toutes les catégories" else [e for e in device_errors if e["category"] == selected_cat]
+
+    if filtered_errors:
+        for idx, err in enumerate(filtered_errors):
             with st.container(border=True):
-                c_code, c_desc, c_btn = st.columns([1, 4, 1.5])
+                c_code, c_desc, c_btn = st.columns([1.2, 3.8, 1.5])
                 with c_code:
                     st.code(err["code"])
+                    st.caption(err["category"])
                 with c_desc:
-                    st.markdown(f"**{err['cause']}**")
+                    st.markdown(f"**{err['title']}**")
                     st.caption(f"{err['solution'][:110]}...")
                 with c_btn:
-                    if st.button("Voir la solution", key=f"btn_{err['id_inv']}_{idx}", use_container_width=True):
+                    if st.button("Voir la solution", key=f"btn_{err['id_inv']}_{idx}_{err['code']}", use_container_width=True):
                         st.session_state["active_code"] = err["code"]
                         st.rerun()
     else:
-        st.warning("Aucune panne n'a encore été extraite pour ce manuel. Déposez un PDF dans la colonne de gauche pour l'alimenter automatiquement.")
+        st.warning("Aucune panne dans cette catégorie pour cet appareil.")
