@@ -1,5 +1,4 @@
 import io
-import os
 import re
 import sqlite3
 from datetime import datetime
@@ -18,52 +17,88 @@ st.set_page_config(
 
 DB_PATH = "biomed_data.db"
 
-# --- 1. GESTION PERSISTANTE SQLITE ---
+# --- 1. GESTION PERSISTANTE SQLITE AVEC ÉQUIPEMENTS DYNAMIQUES ---
 
 def init_db():
-    """Initialise la base de données locale persistante si elle n'existe pas."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        # Table des fichiers PDF
+        
+        # Table des équipements de l'atelier
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS equipments (
+                id_inv TEXT PRIMARY KEY,
+                brand TEXT,
+                model TEXT,
+                sn TEXT,
+                service TEXT,
+                bt TEXT
+            )
+        """)
+
+        # Table des manuels PDF
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS manuals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_inv TEXT,
                 filename TEXT UNIQUE,
                 upload_date TEXT,
-                pdf_blob BLOB
+                pdf_blob BLOB,
+                FOREIGN KEY (id_inv) REFERENCES equipments(id_inv)
             )
         """)
-        # Table des erreurs et résolutions extraites
+
+        # Table des erreurs liée à l'équipement
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS error_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_inv TEXT,
                 code TEXT,
                 cause TEXT,
                 solution TEXT,
                 source TEXT,
-                page INTEGER
+                page INTEGER,
+                FOREIGN KEY (id_inv) REFERENCES equipments(id_inv)
             )
         """)
-        
-        # Données de démonstration initiales (insérées seulement si la table est vide)
-        cursor.execute("SELECT COUNT(*) FROM error_records")
+
+        # Données de démonstration initiales
+        cursor.execute("SELECT COUNT(*) FROM equipments")
         if cursor.fetchone()[0] == 0:
-            default_errors = [
-                ("E-02", "Surchauffe cuve / Défaut tachymétrique", "Contrôler l'entrefer du capteur de vitesse sous le bol (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur.", "Manuel Hettich", 48),
-                ("LID OPEN", "Contacteur couvercle défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Remplacer l'électro-aimant si résistance infinie.", "Manuel Hettich", 52),
-                ("AL-04", "Débit d'eau osmosée insuffisant", "Nettoyer le tamis d'admission 50µm. Vérifier la pression statique amont (min 2,5 bars).", "Manuel WD40", 31),
-                ("AIR IN LINE", "Bulle détectée ou capteur encrassé", "Nettoyer les prismes optiques de détection avec de l'alcool isopropylique. Étalonner le capteur.", "Manuel Fluido", 19)
-            ]
             cursor.executemany("""
-                INSERT INTO error_records (code, cause, solution, source, page) 
-                VALUES (?, ?, ?, ?, ?)
-            """, default_errors)
+                INSERT OR IGNORE INTO equipments (id_inv, brand, model, sn, service, bt)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, [
+                ("INV-88341", "Hettich", "Rotanta 460 RF", "SN-2024-991-RF", "Laboratoire Biochimie", "#4012"),
+                ("INV-10292", "Wassenburg", "WD40", "SN-WD-4412", "Endoscopie", "Aucun"),
+                ("INV-44019", "The Surgical Co", "Fluido AirGuard", "SN-FL-9931", "Bloc Opératoire", "#3890")
+            ])
+            
+            cursor.executemany("""
+                INSERT INTO error_records (id_inv, code, cause, solution, source, page) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, [
+                ("INV-88341", "E-02", "Surchauffe cuve / Défaut tachymétrique", "Contrôler l'entrefer du capteur de vitesse sous le bol (0,8 mm ± 0,2). Vérifier l'aimant d'arbre moteur.", "Manuel Hettich", 48),
+                ("INV-88341", "LID OPEN", "Contacteur couvercle défaillant", "Vérifier la course du micro-contacteur de sécurité (SW1). Remplacer l'électro-aimant si résistance infinie.", "Manuel Hettich", 52),
+                ("INV-10292", "AL-04", "Débit d'eau osmosée insuffisant", "Nettoyer le tamis d'admission 50µm. Vérifier la pression statique amont (min 2,5 bars).", "Manuel WD40", 31),
+                ("INV-44019", "AIR IN LINE", "Bulle détectée ou capteur encrassé", "Nettoyer les prismes optiques de détection avec de l'alcool isopropylique. Étalonner le capteur.", "Manuel Fluido", 19)
+            ])
         conn.commit()
 
 init_db()
 
-def save_manual_and_errors(uploaded_file, extracted_errors):
-    """Sauvegarde le fichier binaire du PDF et les pannes associées en base."""
+# --- 2. FONCTIONS DE GESTION EN BASE ---
+
+def get_all_equipments():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id_inv, brand, model, sn, service, bt FROM equipments ORDER BY id_inv")
+        rows = cursor.fetchall()
+        return {
+            r[0]: {"brand": r[1], "model": r[2], "sn": r[3], "service": r[4], "bt": r[5]}
+            for r in rows
+        }
+
+def save_manual_equipment_and_errors(id_inv, brand, model, sn, service, bt, uploaded_file, extracted_errors):
     file_bytes = uploaded_file.getvalue()
     filename = uploaded_file.name
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -71,65 +106,114 @@ def save_manual_and_errors(uploaded_file, extracted_errors):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         
-        # Enregistrement ou mise à jour du fichier PDF
+        # 1. Enregistrement ou mise à jour de l'équipement
         cursor.execute("""
-            INSERT OR REPLACE INTO manuals (filename, upload_date, pdf_blob)
-            VALUES (?, ?, ?)
-        """, (filename, now_str, file_bytes))
+            INSERT OR REPLACE INTO equipments (id_inv, brand, model, sn, service, bt)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (id_inv, brand, model, sn, service, bt))
 
-        # Enregistrement des erreurs compilées
+        # 2. Sauvegarde du fichier PDF
+        cursor.execute("""
+            INSERT OR REPLACE INTO manuals (id_inv, filename, upload_date, pdf_blob)
+            VALUES (?, ?, ?, ?)
+        """, (id_inv, filename, now_str, file_bytes))
+
+        # 3. Sauvegarde des pannes avec la clé d'équipement
         for err in extracted_errors:
             cursor.execute("""
-                INSERT INTO error_records (code, cause, solution, source, page)
-                VALUES (?, ?, ?, ?, ?)
-            """, (err["code"], err["cause"], err["solution"], err["source"], err["page"]))
+                INSERT INTO error_records (id_inv, code, cause, solution, source, page)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (id_inv, err["code"], err["cause"], err["solution"], err["source"], err["page"]))
             
         conn.commit()
 
-def load_all_errors():
-    """Charge toutes les pannes stockées dans SQLite."""
+def load_errors_for_equipment(id_inv=None):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT code, cause, solution, source, page FROM error_records ORDER BY id DESC")
+        if id_inv and id_inv != "Tous les équipements":
+            cursor.execute("""
+                SELECT id_inv, code, cause, solution, source, page 
+                FROM error_records 
+                WHERE id_inv = ? 
+                ORDER BY id DESC
+            """, (id_inv,))
+        else:
+            cursor.execute("""
+                SELECT id_inv, code, cause, solution, source, page 
+                FROM error_records 
+                ORDER BY id DESC
+            """)
         rows = cursor.fetchall()
         return [
-            {"code": r[0], "cause": r[1], "solution": r[2], "source": r[3], "page": r[4]}
+            {"id_inv": r[0], "code": r[1], "cause": r[2], "solution": r[3], "source": r[4], "page": r[5]}
             for r in rows
         ]
 
 def load_saved_manuals():
-    """Liste les manuels présents dans la base."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT filename, upload_date, LENGTH(pdf_blob) FROM manuals ORDER BY id DESC")
+        cursor.execute("SELECT m.filename, m.upload_date, LENGTH(m.pdf_blob), e.brand, e.model, m.id_inv FROM manuals m LEFT JOIN equipments e ON m.id_inv = e.id_inv ORDER BY m.id DESC")
         return cursor.fetchall()
 
-# --- 2. ANALYSE ET EXTRACTION PDF ---
+# --- 3. PARSEUR MULTI-RÈGLES ROBUSTE ---
 
 def parse_pdf_errors(uploaded_file):
-    """Extrait le texte et compile les codes d'erreurs."""
+    """
+    Parseur tolérant conçu pour les guides de maintenance biomédicale.
+    Gère les erreurs sur une ou plusieurs lignes, tableaux et codes isolés.
+    """
     extracted = []
     reader = PdfReader(uploaded_file)
-    regex = re.compile(
-        r'(?:Error|Erreur|Code|Alarm|E-|Alarme)\s*[-:]?\s*([A-Za-z0-9]{1,6})[:\s\-]+([^.\n]{5,60})[.\s\-]+([^.\n]{10,200})',
-        re.IGNORECASE
-    )
-    
-    max_pages = min(len(reader.pages), 80)
+    max_pages = min(len(reader.pages), 100)
+
+    # Patterns de capture d'alarmes (E01, Err-12, Alarm 04, Code F3, LID OPEN, etc.)
+    code_pattern = re.compile(r'\b(?:ERROR|ERR|CODE|ALARM|ALARME|FAULT|DÉFAUT|DEF|E|F)\s*[-:#]?\s*([A-Za-z0-9]{1,6})\b', re.IGNORECASE)
+
     for idx in range(max_pages):
         page_num = idx + 1
         page_text = reader.pages[idx].extract_text() or ""
-        for match in regex.finditer(page_text):
-            extracted.append({
-                "code": match.group(1).upper(),
-                "cause": match.group(2).strip(),
-                "solution": match.group(3).strip(),
-                "source": uploaded_file.name[:25],
-                "page": page_num
-            })
+        
+        # Nettoyage des lignes
+        lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            match = code_pattern.search(line)
+            
+            if match:
+                code_trouve = match.group(0).upper().replace("  ", " ")
+                
+                # Récupération du reste de la ligne ou des lignes suivantes comme cause/solution
+                reste_ligne = line[match.end():].strip(" :-\t")
+                cause = reste_ligne if len(reste_ligne) > 5 else "Anomalie signalée sur dispositif"
+                
+                # On regarde la ligne suivante pour la solution si disponible
+                solution = ""
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+                    # Si la ligne suivante n'est pas elle-même un nouveau code d'erreur
+                    if not code_pattern.search(next_line):
+                        solution = next_line
+                        i += 1
+                
+                if not solution:
+                    solution = "Consulter le schéma de dépannage de la section maintenance et vérifier l'intégrité des capteurs."
+
+                # Éviter les faux positifs trop courts
+                if len(cause) > 3 or len(solution) > 5:
+                    extracted.append({
+                        "code": code_trouve,
+                        "cause": cause[:120],
+                        "solution": solution[:250],
+                        "source": uploaded_file.name[:25],
+                        "page": page_num
+                    })
+            i += 1
+
     return extracted
 
-# --- 3. GÉNÉRATEUR PDF CERTIFIÉ ---
+# --- 4. GÉNÉRATEUR PDF CERTIFIÉ ---
 
 def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_name):
     buffer = io.BytesIO()
@@ -207,18 +291,10 @@ def generate_certified_pdf(inv_id, equipment_info, symptom, resolution, tech_nam
     buffer.seek(0)
     return buffer
 
-# --- 4. CATALOGUE ET INTERFACE ---
+# --- 5. INTERFACE PRINCIPALE STREAMLIT ---
 
-EQUIPMENT_CATALOG = {
-    "INV-88341": {"brand": "Hettich", "model": "Rotanta 460 RF", "sn": "SN-2024-991-RF", "service": "Laboratoire Biochimie", "bt": "#4012"},
-    "INV-10292": {"brand": "Wassenburg", "model": "WD40", "sn": "SN-WD-4412", "service": "Endoscopie", "bt": "Aucun"},
-    "INV-44019": {"brand": "The Surgical Co", "model": "Fluido AirGuard", "sn": "SN-FL-9931", "service": "Bloc Opératoire", "bt": "#3890"}
-}
+equipments = get_all_equipments()
 
-all_errors = load_all_errors()
-saved_manuals = load_saved_manuals()
-
-# En-tête
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("🩺 BioMed Assist Pro")
@@ -228,8 +304,8 @@ with col_h2:
 
 tab_diag, tab_matrix, tab_db = st.tabs([
     "🩺 Diagnostic & GMAO", 
-    f"📚 Matrice d'Erreurs ({len(all_errors)})",
-    f"💾 Base Manuels ({len(saved_manuals)})"
+    "📚 Matrice d'Erreurs par Équipement",
+    "💾 Base des Manuels & Équipements"
 ])
 
 # --- TAB 1 : DIAGNOSTIC & GMAO ---
@@ -240,12 +316,12 @@ with tab_diag:
         st.subheader("🏷️ Inventaire GMAO")
         
         selected_inv = st.selectbox(
-            "Équipement au catalogue :",
-            options=list(EQUIPMENT_CATALOG.keys()),
-            format_func=lambda x: f"{x} — {EQUIPMENT_CATALOG[x]['model']} ({EQUIPMENT_CATALOG[x]['brand']})"
+            "Équipement sous intervention :",
+            options=list(equipments.keys()),
+            format_func=lambda x: f"{x} — {equipments[x]['model']} ({equipments[x]['brand']})"
         )
         
-        eq = EQUIPMENT_CATALOG[selected_inv]
+        eq = equipments[selected_inv]
         st.info(f"""
         **Modèle :** {eq['brand']} {eq['model']}  
         **Série :** `{eq['sn']}`  
@@ -254,46 +330,80 @@ with tab_diag:
         """)
 
         st.divider()
-        st.subheader("📄 Dépôt Manuel PDF")
+        st.subheader("📄 Ajouter un Manuel & Équipement")
         
-        # Enregistrement automatique dès le dépôt
-        uploaded_pdf = st.file_uploader("Ajouter un manuel (sauvegarde auto)", type=["pdf"], key="pdf_uploader")
-        
-        if uploaded_pdf is not None:
-            # Clé en session pour éviter de réanalyser 50 fois le même upload au rerun
-            upload_key = f"processed_{uploaded_pdf.name}_{uploaded_pdf.size}"
-            if upload_key not in st.session_state:
-                with st.spinner("Enregistrement en base et analyse automatique..."):
-                    extracted = parse_pdf_errors(uploaded_pdf)
-                    save_manual_and_errors(uploaded_pdf, extracted)
-                    st.session_state[upload_key] = True
-                    st.success(f"✔ « {uploaded_pdf.name} » stocké en base SQLite ({len(extracted)} pannes extraites) !")
-                    st.rerun()
+        with st.expander("➕ Enregistrer un nouvel équipement avec son manuel", expanded=False):
+            with st.form("add_equipment_form", clear_on_submit=False):
+                new_inv = st.text_input("N° Inventaire GMAO", placeholder="ex: INV-55421")
+                new_brand = st.text_input("Marque / Fabricant", placeholder="ex: Fresenius, Maquet, Mindray...")
+                new_model = st.text_input("Modèle de l'appareil", placeholder="ex: 5008S, Servo-u, BeneVision...")
+                new_sn = st.text_input("Numéro de série", placeholder="ex: SN-2026-0041")
+                new_service = st.text_input("Service d'affectation", placeholder="ex: Réanimation, Dialyse, Urgences...")
+                new_bt = st.text_input("N° Ordre de travail GMAO", value="#Nouveau")
+                uploaded_pdf = st.file_uploader("Fichier PDF du manuel de service", type=["pdf"])
+
+                submitted = st.form_submit_button("💾 Enregistrer et Extraire les Erreurs", type="primary")
+
+                if submitted:
+                    if not new_inv or not new_brand or not new_model or not uploaded_pdf:
+                        st.error("Veuillez renseigner au moins l'inventaire, la marque, le modèle et déposer le PDF.")
+                    else:
+                        with st.spinner("Indexation de l'équipement et parsing des codes erreurs..."):
+                            extracted = parse_pdf_errors(uploaded_pdf)
+                            save_manual_equipment_and_errors(
+                                id_inv=new_inv.strip().upper(),
+                                brand=new_brand.strip(),
+                                model=new_model.strip(),
+                                sn=new_sn.strip() or "N/C",
+                                service=new_service.strip() or "Biomédical",
+                                bt=new_bt.strip() or "Aucun",
+                                uploaded_file=uploaded_pdf,
+                                extracted_errors=extracted
+                            )
+                            st.success(f"Équipement {new_inv} enregistré ! {len(extracted)} pannes compilées.")
+                            st.rerun()
 
     with col_right:
-        st.subheader("🔍 Diagnostic & Procédure Constructeur")
-        query = st.text_input("Symptôme observé ou code alarme :", value="Erreur E-02 surchauffe cuve ou couvercle bloqué")
+        st.subheader(f"🔍 Diagnostic ciblé sur : {eq['brand']} {eq['model']}")
+        
+        # On charge uniquement les erreurs propres à cet équipement
+        eq_errors = load_errors_for_equipment(selected_inv)
+        
+        if eq_errors:
+            st.caption(f"ℹ️ {len(eq_errors)} codes pannes répertoriés pour ce dispositif dans le système.")
+        else:
+            st.warning("Aucun code panne spécifique encore extrait pour ce modèle. Diagnostic général actif.")
+
+        query = st.text_input("Symptôme observé ou code alarme :", value="E-02")
 
         q_clean = query.upper()
-        found = next((item for item in all_errors if item["code"] in q_clean or item["cause"].upper() in q_clean), None)
+        # Recherche en priorité dans les erreurs de l'équipement sélectionné
+        found = next((item for item in eq_errors if item["code"] in q_clean or item["cause"].upper() in q_clean), None)
+
+        # Si pas trouvé dans cet équipement, recherche globale
+        if not found:
+            all_errors = load_errors_for_equipment(None)
+            found = next((item for item in all_errors if item["code"] in q_clean or item["cause"].upper() in q_clean), None)
 
         if found:
             res_text = f"""✔ SOLUTION CONSTRUCTEUR IDENTIFIÉE ({found['source']} - Page {found['page']}) :
 
-• Identification : Panne {found['code']} — {found['cause']}
-• Action recommandée : {found['solution']}
+• Équipement cible : {eq['brand']} {eq['model']}
+• Code détecté : {found['code']}
+• Cause probable : {found['cause']}
+• Procédure de résolution : {found['solution']}
 
-• Contrôles de sécurité requis (NF EN 62353) :
-  1. Continuité de la terre de protection (< 0,20 Ω).
-  2. Mesure du courant de fuite à la terre / carcasse.
-  3. Essai dynamique et validation des sécurités mécaniques."""
+• Contrôles réglementaires exigés (NF EN 62353) :
+  1. Mesure de continuité de la terre de protection (< 0,20 Ω).
+  2. Vérification des courants de fuite à la terre et carcasse.
+  3. Validation des autotests et sécurités mécaniques/thermiques."""
         else:
-            res_text = f"""Procédure générale pour : {query}
+            res_text = f"""Procédure générale pour {eq['brand']} {eq['model']} (Symptôme : {query}) :
 
-1. Vérifier les tensions d'alimentation secondaires sur la carte de puissance.
-2. Inspecter les faisceaux de câblage et connecteurs pour déceler toute trace d'oxydation ou surchauffe.
-3. Effectuer le test d'autodiagnostic en mode service constructeur.
-4. Relever les mesures de conformité NF EN 62353 avant remise au service de soins."""
+1. Contrôler les tensions secondaires du bloc d'alimentation.
+2. Vérifier l'état mécanique et les faisceaux de câbles du sous-ensemble en alarme.
+3. Lancer la procédure d'autotest depuis le menu de service constructeur.
+4. Effectuer les contrôles de sécurité électrique NF EN 62353 avant remise au service {eq['service']}."""
 
         st.text_area("Consignes techniques et étapes de maintenance :", value=res_text, height=220)
 
@@ -307,7 +417,7 @@ with tab_diag:
                 tech_name="Hakki Ismail"
             )
             st.download_button(
-                label="📄 Télécharger la Fiche Certifiée (PDF)",
+                label=f"📄 Fiche Certifiée ({selected_inv})",
                 data=pdf_bytes,
                 file_name=f"Fiche_Intervention_{selected_inv}.pdf",
                 mime="application/pdf",
@@ -321,24 +431,39 @@ with tab_diag:
 # --- TAB 2 : MATRICE DES PANNES ---
 with tab_matrix:
     st.subheader("📋 Matrice des Pannes & Résolutions Extraites")
-    filter_txt = st.text_input("Filtrer par code ou cause :", placeholder="Ex: E-02, rotor, température...")
     
-    filtered_db = [
-        item for item in all_errors
-        if filter_txt.lower() in item["code"].lower() 
-        or filter_txt.lower() in item["cause"].lower()
-        or filter_txt.lower() in item["solution"].lower()
-    ]
+    col_f1, col_f2 = st.columns([1, 2])
+    with col_f1:
+        filter_equip = st.selectbox(
+            "Filtrer par équipement :",
+            options=["Tous les équipements"] + list(equipments.keys()),
+            format_func=lambda x: "Tous les équipements" if x == "Tous les équipements" else f"{x} — {equipments[x]['model']}"
+        )
+    with col_f2:
+        filter_txt = st.text_input("Recherche rapide (code, cause, solution) :", placeholder="Ex: E-02, rotor, débit, température...")
 
-    if filtered_db:
-        for err in filtered_db:
+    displayed_errors = load_errors_for_equipment(filter_equip)
+    
+    if filter_txt:
+        displayed_errors = [
+            e for e in displayed_errors
+            if filter_txt.lower() in e["code"].lower()
+            or filter_txt.lower() in e["cause"].lower()
+            or filter_txt.lower() in e["solution"].lower()
+        ]
+
+    st.caption(f"{len(displayed_errors)} panne(s) trouvée(s).")
+
+    if displayed_errors:
+        for err in displayed_errors:
             with st.container(border=True):
                 c1, c2, c3 = st.columns([1, 4, 1])
                 with c1:
                     st.code(err["code"])
+                    st.caption(f"Inventaire : {err['id_inv']}")
                 with c2:
                     st.markdown(f"**Cause :** {err['cause']}")
-                    st.write(err["solution"])
+                    st.write(f"**Résolution :** {err['solution']}")
                 with c3:
                     st.caption(f"{err['source']}\nPage {err['page']}")
     else:
@@ -346,12 +471,20 @@ with tab_matrix:
 
 # --- TAB 3 : ÉTAT DE LA BASE DE DONNÉES ---
 with tab_db:
-    st.subheader("💾 Manuels PDF Stockés dans SQLite (`biomed_data.db`)")
+    st.subheader("💾 Répertoire des Équipements & Manuels Associés")
+    
+    saved_manuals = load_saved_manuals()
     
     if saved_manuals:
         for m in saved_manuals:
-            fname, udate, size_b = m
+            fname, udate, size_b, brand, model, inv_id = m
             size_mb = size_b / (1024 * 1024)
-            st.write(f"📁 **{fname}** — Ajouté le {udate} ({size_mb:.2f} Mo stockés en base)")
+            with st.container(border=True):
+                c_info1, c_info2 = st.columns([3, 1])
+                with c_info1:
+                    st.markdown(f"**{inv_id} — {brand} {model}**")
+                    st.caption(f"Fichier : `{fname}` | Taille : {size_mb:.2f} Mo")
+                with c_info2:
+                    st.write(f"📅 Ajouté le {udate}")
     else:
-        st.info("Aucun fichier PDF n'a encore été importé.")
+        st.info("Aucun manuel enregistré en base pour le moment.")
