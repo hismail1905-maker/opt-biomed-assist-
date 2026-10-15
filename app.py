@@ -5,6 +5,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+import pandas as pd
 import streamlit as st
 from pypdf import PdfReader
 from reportlab.lib import colors
@@ -20,13 +21,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-DB_PATH = "biomed_v_ultimate.db"
+DB_PATH = "biomed_v_tcd.db"
 
-# Compatibilité descendante pour @st.fragment
 fragment_decorator = getattr(st, "fragment", lambda f: f)
 
 # =========================================================================
-# 1. EXPRESSIONS RÉGULIÈRES PRÉ-COMPILÉES (GAIN CPU MAJEUR SUR LES PDF)
+# 1. EXPRESSIONS RÉGULIÈRES PRÉ-COMPILÉES
 # =========================================================================
 
 RE_DOTS = re.compile(r'\.{2,}|\s*\.{2,}\s*\d+$')
@@ -46,7 +46,7 @@ RE_TEXT_ALARMS = re.compile(
 )
 
 # =========================================================================
-# 2. GESTIONNAIRE SQLITE HAUTE PERFORMANCE (INDEXÉ + ROW FACTORY)
+# 2. GESTIONNAIRE SQLITE HAUTE PERFORMANCE
 # =========================================================================
 
 @contextmanager
@@ -111,6 +111,8 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date_heure TEXT,
                 materiel_nom TEXT,
+                service TEXT,
+                domaine TEXT,
                 code_panne TEXT,
                 terre_ohm REAL,
                 fuite_ua REAL,
@@ -119,7 +121,6 @@ def init_db():
             )
         """)
 
-        # Index SQL pour accélérer les filtres et recherches
         c.execute("CREATE INDEX IF NOT EXISTS idx_pannes_mat ON pannes(materiel_id, domaine);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_pages_mat ON pages_manuel(materiel_id);")
         
@@ -210,6 +211,19 @@ def init_db():
                     "Astuce atelier : Si la cassette sort tout juste de l'autoclave et est encore chaude/humide, elle met systématiquement l'appareil en erreur ERR-32."
                 )
             ])
+
+            # Données initiales d'interventions pour alimenter immédiatement le Tableau Croisé Dynamique
+            c.executemany("""
+                INSERT INTO audit_log (date_heure, materiel_nom, service, domaine, code_panne, terre_ohm, fuite_ua, technicien, etat_conformite)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                ("10/10/2026 09:15", "Rotanta 460 RF (Centrifugeuse)", "Laboratoire Biochimie", "⚙️ Mécanique & Moteur", "E-02", 0.08, 42.0, "Hakki Ismail", "CONFORME (NF EN 62353)"),
+                ("11/10/2026 14:30", "WD40 (Laveur-Désinfecteur)", "Plateau Endoscopie", "⚡ Électrique & Capteurs", "AL-04", 0.11, 85.0, "Hakki Ismail", "CONFORME (NF EN 62353)"),
+                ("12/10/2026 11:00", "Fluido AirGuard (Réchauffeur)", "Bloc Opératoire", "⚡ Électrique & Capteurs", "AIR IN LINE", 0.06, 30.0, "Hakki Ismail", "CONFORME (NF EN 62353)"),
+                ("13/10/2026 16:20", "Rotanta 460 RF (Centrifugeuse)", "Laboratoire Biochimie", "⚙️ Mécanique & Moteur", "LID OPEN", 0.09, 48.0, "Hakki Ismail", "CONFORME (NF EN 62353)"),
+                ("14/10/2026 10:05", "Servo-u (Respirateur)", "Réanimation Médicale", "⚡ Électrique & Capteurs", "ERR-32", 0.07, 65.0, "Hakki Ismail", "CONFORME (NF EN 62353)"),
+                ("15/10/2026 08:45", "WD40 (Laveur-Désinfecteur)", "Plateau Endoscopie", "⚡ Électrique & Capteurs", "AL-04", 0.24, 190.0, "Hakki Ismail", "NON CONFORME - REMISE EN SERVICE BLOQUÉE")
+            ])
         conn.commit()
 
 init_db()
@@ -241,6 +255,17 @@ def load_errors_by_device(mat_id, domaine_filtre="Tous"):
             """, (mat_id, domaine_filtre)).fetchall()
         return [dict(r) for r in rows]
 
+@st.cache_data(ttl=120)
+def load_full_catalog_for_pivot():
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT m.nom AS Équipement, m.marque AS Marque, m.service AS Service,
+                   p.domaine AS Domaine, p.criticite AS Criticité, p.code AS Code_Panne
+            FROM pannes p
+            JOIN materiels m ON p.materiel_id = m.id
+        """).fetchall()
+        return [dict(r) for r in rows]
+
 def update_astuce_terrain(panne_id, nouvelle_astuce):
     with get_db() as conn:
         conn.execute("UPDATE pannes SET astuce_terrain = ? WHERE id = ?", (nouvelle_astuce, panne_id))
@@ -256,6 +281,7 @@ def add_custom_panne(mat_id, domaine, criticite, code, titre, probleme, outils, 
         """, (mat_id, domaine, criticite, code.upper(), titre, probleme, outils, piece, etape1, etape2, etape3, mesure, astuce))
         conn.commit()
     load_errors_by_device.clear()
+    load_full_catalog_for_pivot.clear()
 
 @st.cache_data(ttl=60)
 def search_in_manual_pages(mat_id, keyword):
@@ -267,13 +293,13 @@ def search_in_manual_pages(mat_id, keyword):
         """, (mat_id, f"%{keyword}%")).fetchall()
         return [(r["num_page"], r["contenu"]) for r in rows]
 
-def log_intervention(mat_nom, code, terre_val, fuite_val, tech, conforme=True):
+def log_intervention(mat_nom, service, domaine, code, terre_val, fuite_val, tech, conforme=True):
     res_str = "CONFORME (NF EN 62353)" if conforme else "NON CONFORME - REMISE EN SERVICE BLOQUÉE"
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO audit_log (date_heure, materiel_nom, code_panne, terre_ohm, fuite_ua, technicien, etat_conformite)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (datetime.now().strftime("%d/%m/%Y %H:%M"), mat_nom, code, terre_val, fuite_val, tech, res_str))
+            INSERT INTO audit_log (date_heure, materiel_nom, service, domaine, code_panne, terre_ohm, fuite_ua, technicien, etat_conformite)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (datetime.now().strftime("%d/%m/%Y %H:%M"), mat_nom, service, domaine, code, terre_val, fuite_val, tech, res_str))
         conn.commit()
     load_audit_history.clear()
 
@@ -281,13 +307,13 @@ def log_intervention(mat_nom, code, terre_val, fuite_val, tech, conforme=True):
 def load_audit_history():
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT date_heure, materiel_nom, code_panne, terre_ohm, fuite_ua, technicien, etat_conformite 
-            FROM audit_log ORDER BY id DESC LIMIT 100
+            SELECT date_heure, materiel_nom, service, domaine, code_panne, terre_ohm, fuite_ua, technicien, etat_conformite 
+            FROM audit_log ORDER BY id DESC LIMIT 200
         """).fetchall()
         return [dict(r) for r in rows]
 
 # =========================================================================
-# 3. PARSEUR PDF VECTORISÉ (EXPRESSIONS PRÉ-COMPILÉES)
+# 3. PARSEUR PDF VECTORISÉ
 # =========================================================================
 
 def is_unwanted_line(text):
@@ -431,6 +457,7 @@ def parse_and_store_pdf(uploaded_file):
 
     load_all_devices.clear()
     load_errors_by_device.clear()
+    load_full_catalog_for_pivot.clear()
     return device_id, len(pannes_trouvees)
 
 # =========================================================================
@@ -522,7 +549,7 @@ def build_pdf_certificate_cached(
     return buf.getvalue()
 
 # =========================================================================
-# 5. FRAGMENTS D'INTERFACE ISOLÉS (ZÉRO RECHARGEMENT GLOBAL)
+# 5. FRAGMENTS D'INTERFACE ISOLÉS
 # =========================================================================
 
 @fragment_decorator
@@ -587,14 +614,17 @@ def render_nf62353_and_export(current_mat_id, info_mat, panne):
 
     with col_act2:
         if st.button("💾 Enregistrer et Clôturer dans le Registre", use_container_width=True):
-            log_intervention(info_mat['nom'], panne['code'], val_terre, val_fuite, "Hakki Ismail", conforme=conforme_global)
-            st.toast("Intervention archivée dans le registre !", icon="✅")
+            log_intervention(
+                info_mat['nom'], info_mat['service'], panne['domaine'],
+                panne['code'], val_terre, val_fuite, "Hakki Ismail", conforme=conforme_global
+            )
+            st.toast("Intervention archivée et ajoutée au Tableau Croisé Dynamique !", icon="✅")
 
     with st.expander("📋 Copier le compte-rendu prêt pour la GMAO"):
         st.code(texte_gmao, language="text")
 
 # =========================================================================
-# 6. INTERFACE PRINCIPALE
+# 6. INTERFACE PRINCIPALE EN 4 ONGLETS (AVEC TCD)
 # =========================================================================
 
 materiels_dict = load_all_devices()
@@ -663,13 +693,16 @@ with st.sidebar:
                 st.toast(f"Manuel indexé ({total} pannes extraites) !", icon="📑")
                 st.rerun()
 
-tab_depannage, tab_manuel, tab_registre = st.tabs([
+tab_depannage, tab_manuel, tab_tcd, tab_registre = st.tabs([
     "🛠️ 1. Banc de Dépannage & Mesures",
-    "📖 2. Recherche libre dans le Manuel PDF",
-    "📋 3. Registre & Export GMAO"
+    "📖 2. Recherche dans le Manuel PDF",
+    "📊 3. Tableau Croisé Dynamique",
+    "📋 4. Registre & Export GMAO"
 ])
 
-# --- ONGLET 1 : BANC DE DÉPANNAGE ---
+# =========================================================================
+# ONGLET 1 : BANC DE DÉPANNAGE
+# =========================================================================
 with tab_depannage:
     st.subheader(f"Dépannage : {info_mat['nom']} ({info_mat['marque']})")
 
@@ -742,13 +775,14 @@ with tab_depannage:
 
         st.divider()
 
-        # Fragment indépendant pour les mesures NF EN 62353 et l'export PDF
         render_nf62353_and_export(current_mat_id, info_mat, panne)
 
     else:
         st.warning("Aucune panne ne correspond à ce filtre. Tu peux l'ajouter via le bouton '➕ Créer une fiche panne manuelle' à gauche.")
 
-# --- ONGLET 2 : RECHERCHE PLEIN TEXTE DANS LE MANUEL PDF ---
+# =========================================================================
+# ONGLET 2 : RECHERCHE PLEIN TEXTE DANS LE MANUEL PDF
+# =========================================================================
 with tab_manuel:
     st.subheader(f"📖 Recherche libre dans le manuel : {info_mat['nom']}")
     st.caption("Cherche instantanément un terme technique dans toutes les pages du PDF importé.")
@@ -766,9 +800,147 @@ with tab_manuel:
         else:
             st.info("Aucun résultat trouvé dans les pages enregistrées pour cet appareil.")
 
-# --- ONGLET 3 : REGISTRE & EXPORT CSV ---
+# =========================================================================
+# ONGLET 3 : TABLEAU CROISÉ DYNAMIQUE (TCD INTERACTIF)
+# =========================================================================
+with tab_tcd:
+    st.subheader("📊 Tableau Croisé Dynamique (Analyse Biomédicale)")
+    st.caption("Croise librement les équipements, services, domaines techniques et mesures électriques NF EN 62353.")
+
+    source_tcd = st.radio(
+        "Choisir la base de données à analyser :",
+        options=[
+            "1. Historique des Interventions & Mesures NF EN 62353",
+            "2. Cartographie du Catalogue des Pannes (Par Équipement & Domaine)"
+        ],
+        horizontal=True
+    )
+
+    st.divider()
+
+    # --- CAS 1 : TCD SUR LES INTERVENTIONS ET MESURES ---
+    if source_tcd.startswith("1."):
+        logs_data = load_audit_history()
+        if logs_data:
+            df_logs = pd.DataFrame(logs_data).rename(columns={
+                "date_heure": "Date",
+                "materiel_nom": "Dispositif",
+                "service": "Service",
+                "domaine": "Domaine",
+                "code_panne": "Code_Panne",
+                "terre_ohm": "Terre (Ω)",
+                "fuite_ua": "Fuite (µA)",
+                "technicien": "Technicien",
+                "etat_conformite": "Statut"
+            })
+
+            c_p1, c_p2, c_p3, c_p4 = st.columns(4)
+            dim_options = ["Dispositif", "Service", "Domaine", "Statut", "Code_Panne", "Technicien"]
+            
+            with c_p1:
+                row_dim = st.selectbox("Lignes (Index) :", options=dim_options, index=0)
+            with c_p2:
+                col_options = [d for d in dim_options if d != row_dim]
+                col_dim = st.selectbox("Colonnes :", options=col_options, index=1)
+            with c_p3:
+                val_dim = st.selectbox("Valeur à analyser :", options=["Nombre d'interventions", "Terre (Ω)", "Fuite (µA)"])
+            with c_p4:
+                if val_dim == "Nombre d'interventions":
+                    agg_label = st.selectbox("Calcul :", options=["Compte (Nombre)"])
+                else:
+                    agg_label = st.selectbox("Calcul :", options=["Moyenne", "Maximum", "Minimum"])
+
+            # Construction du TCD avec Pandas
+            if val_dim == "Nombre d'interventions":
+                pivot_df = pd.pivot_table(
+                    df_logs,
+                    index=row_dim,
+                    columns=col_dim,
+                    values="Code_Panne",
+                    aggfunc="count",
+                    fill_value=0,
+                    margins=True,
+                    margins_name="TOTAL"
+                )
+            else:
+                agg_map = {"Moyenne": "mean", "Maximum": "max", "Minimum": "min"}
+                pivot_df = pd.pivot_table(
+                    df_logs,
+                    index=row_dim,
+                    columns=col_dim,
+                    values=val_dim,
+                    aggfunc=agg_map[agg_label],
+                    fill_value=0,
+                    margins=True,
+                    margins_name="TOTAL"
+                ).round(2)
+
+            st.markdown(f"#### 📋 Résultat : `{val_dim}` par **{row_dim}** et **{col_dim}**")
+            st.dataframe(pivot_df, use_container_width=True)
+
+            # Graphique dynamique associé (hors ligne/colonne TOTAL)
+            chart_df = pivot_df.drop(index="TOTAL", errors="ignore").drop(columns="TOTAL", errors="ignore")
+            if not chart_df.empty:
+                st.markdown("#### 📈 Visualisation Graphique")
+                st.bar_chart(chart_df)
+
+            # Bouton d'export CSV du TCD
+            csv_tcd = pivot_df.to_csv(sep=";").encode("utf-8-sig")
+            st.download_button(
+                label="📥 Télécharger ce Tableau Croisé Dynamique (CSV / Excel)",
+                data=csv_tcd,
+                file_name=f"TCD_Interventions_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Aucune intervention disponible pour générer le tableau croisé.")
+
+    # --- CAS 2 : TCD SUR LE CATALOGUE DES PANNES ---
+    else:
+        cat_data = load_full_catalog_for_pivot()
+        if cat_data:
+            df_cat = pd.DataFrame(cat_data)
+            
+            c_c1, c_c2 = st.columns(2)
+            cat_dims = ["Équipement", "Marque", "Service", "Domaine", "Criticité"]
+            with c_c1:
+                r_cat = st.selectbox("Lignes (Index) :", options=cat_dims, index=0, key="tcd_cat_r")
+            with c_c2:
+                c_cat_opts = [d for d in cat_dims if d != r_cat]
+                c_cat = st.selectbox("Colonnes :", options=c_cat_opts, index=2, key="tcd_cat_c")
+
+            pivot_cat = pd.pivot_table(
+                df_cat,
+                index=r_cat,
+                columns=c_cat,
+                values="Code_Panne",
+                aggfunc="count",
+                fill_value=0,
+                margins=True,
+                margins_name="TOTAL"
+            )
+
+            st.markdown(f"#### 📋 Répartition du nombre de pannes par **{r_cat}** et **{c_cat}**")
+            st.dataframe(pivot_cat, use_container_width=True)
+
+            chart_cat = pivot_cat.drop(index="TOTAL", errors="ignore").drop(columns="TOTAL", errors="ignore")
+            if not chart_cat.empty:
+                st.markdown("#### 📈 Répartition Visuelle")
+                st.bar_chart(chart_cat)
+
+            csv_cat = pivot_cat.to_csv(sep=";").encode("utf-8-sig")
+            st.download_button(
+                label="📥 Télécharger le TCD du Catalogue (CSV / Excel)",
+                data=csv_cat,
+                file_name=f"TCD_Catalogue_Pannes_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+
+# =========================================================================
+# ONGLET 4 : REGISTRE & EXPORT CSV
+# =========================================================================
 with tab_registre:
-    st.subheader("📋 Historique des Interventions & Mesures NF EN 62353")
+    st.subheader("📋 Historique Brut des Interventions & Mesures NF EN 62353")
     
     logs = load_audit_history()
     if logs:
@@ -776,6 +948,8 @@ with tab_registre:
             {
                 "Date & Heure": l["date_heure"],
                 "Dispositif": l["materiel_nom"],
+                "Service": l["service"],
+                "Domaine": l["domaine"],
                 "Code Panne": l["code_panne"],
                 "Terre (Ω)": f"{l['terre_ohm']:.2f}",
                 "Fuite (µA)": f"{int(l['fuite_ua'])}",
@@ -792,7 +966,7 @@ with tab_registre:
         writer.writerows(formatted_logs)
         
         st.download_button(
-            label="📊 Exporter l'historique pour Excel (CSV)",
+            label="📊 Exporter tout le registre pour Excel (CSV)",
             data=csv_buffer.getvalue().encode("utf-8-sig"),
             file_name=f"Registre_Biomedical_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
